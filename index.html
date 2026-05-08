@@ -426,35 +426,6 @@
             currentSubtitleText = "";
         }
 
-        // --- EVENTOS PRINCIPALES DE BOTONES ---
-        // Al tocar un botón, encendemos el micrófono DIRECTAMENTE para evitar el bloqueo del navegador
-        
-        document.getElementById('btn-mic').addEventListener('click', () => {
-            if (startListeningEngine()) {
-                toolbar.classList.add('hidden');
-                floatingStop.classList.add('visible');
-                textContainer.contentEditable = "false";
-            }
-        });
-
-        document.getElementById('btn-record').addEventListener('click', () => {
-            if (startListeningEngine()) {
-                toolbar.classList.add('hidden');
-                floatingStop.classList.add('visible');
-                textContainer.contentEditable = "false";
-                startVideoRecording(false);
-            }
-        });
-
-        document.getElementById('btn-record-ia').addEventListener('click', () => {
-            if (startListeningEngine()) {
-                toolbar.classList.add('hidden');
-                floatingStop.classList.add('visible');
-                textContainer.contentEditable = "false";
-                startVideoRecording(true);
-            }
-        });
-
         // --- SISTEMA DE GRABACIÓN DE VIDEO ---
         async function startVideoRecording(useIA) {
             try {
@@ -515,14 +486,57 @@
                     };
 
                     mediaRecorder.start();
+                    
+                    // IMPORTANTE: Después de iniciar el video exitosamente, iniciamos la voz
+                    // Así evitamos la colisión por el acceso al micrófono
+                    if (!isListening) {
+                        startListeningEngine();
+                    }
                 };
             } catch (err) {
                 console.error("Error de cámara/micrófono:", err);
-                subtitle.innerText = "Error: Cámara bloqueada.";
+                subtitle.innerText = "Error: Cámara o micrófono bloqueado.";
                 subtitle.classList.remove('subtitle-hidden');
                 subtitle.classList.add('subtitle-error');
+                
+                // Restaurar la interfaz si falló la activación
+                toolbar.classList.remove('hidden');
+                floatingStop.classList.remove('visible');
+                textContainer.contentEditable = "true";
             }
         }
+
+        // --- EVENTOS PRINCIPALES DE BOTONES ---
+        document.getElementById('btn-mic').addEventListener('click', () => {
+            if (startListeningEngine()) {
+                toolbar.classList.add('hidden');
+                floatingStop.classList.add('visible');
+                textContainer.contentEditable = "false";
+            }
+        });
+
+        // Modificados: Ya no arrancan el motor de voz de inmediato, solo configuran la UI e inician video
+        document.getElementById('btn-record').addEventListener('click', () => {
+            if (textContainer.innerText.trim() === '') {
+                alert("Primero pega o escribe un guion.");
+                return;
+            }
+            toolbar.classList.add('hidden');
+            floatingStop.classList.add('visible');
+            textContainer.contentEditable = "false";
+            startVideoRecording(false);
+        });
+
+        document.getElementById('btn-record-ia').addEventListener('click', () => {
+            if (textContainer.innerText.trim() === '') {
+                alert("Primero pega o escribe un guion.");
+                return;
+            }
+            toolbar.classList.add('hidden');
+            floatingStop.classList.add('visible');
+            textContainer.contentEditable = "false";
+            startVideoRecording(true);
+        });
 
         // --- DETENER TODO (BOTÓN FLOTANTE) ---
         function stopAllProcesses() {
