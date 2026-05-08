@@ -155,7 +155,7 @@
   </div>
 
   <script type="module">
-     import { SelfieSegmentation, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+    import { ImageSegmenter, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.js';
 
     // Elementos
     const video = document.getElementById('video');
@@ -197,8 +197,8 @@
     // ========== Formato de salida ==========
     function updateOutputDimensions() {
       const val = formatSelect.value.split(':');
-      outputWidth = parseInt(val[1]);
-      outputHeight = parseInt(val[2]);
+      outputWidth = parseInt(val[2]);
+      outputHeight = parseInt(val[3]);
       outputCanvas.width = outputWidth;
       outputCanvas.height = outputHeight;
       outputCanvas.style.aspectRatio = `${outputWidth}/${outputHeight}`;
@@ -216,6 +216,16 @@
         video.addEventListener('loadedmetadata', () => {
           processCanvas.width = video.videoWidth;
           processCanvas.height = video.videoHeight;
+          // Centrar y escalar persona para cubrir el canvas de salida
+          const scaleX = outputWidth / video.videoWidth;
+          const scaleY = outputHeight / video.videoHeight;
+          transforms.person.scale = Math.max(scaleX, scaleY);
+          transforms.person.x = outputWidth / 2;
+          transforms.person.y = outputHeight / 2;
+          transforms.background.x = outputWidth / 2;
+          transforms.background.y = outputHeight / 2;
+          transforms.overlay.x = outputWidth / 2;
+          transforms.overlay.y = outputHeight / 2;
           statusDiv.textContent = 'Modelo cargado. Iniciando…';
         });
       } catch (err) {
@@ -227,11 +237,11 @@
     async function loadModel() {
       statusDiv.textContent = 'Descargando modelo…';
       const vision = await FilesetResolver.forVisionTasks(
-        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
+        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
       );
-      segmentation = await SelfieSegmentation.createFromOptions(vision, {
+      segmentation = await ImageSegmenter.createFromOptions(vision, {
         baseOptions: {
-          modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/selfie_segmenter/selfie_segmentation/float16/latest/selfie_segmenter.tflite'
+          modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite'
         },
         runningMode: 'VIDEO',
         outputConfidenceMasks: true,
@@ -253,33 +263,35 @@
 
     function composeFrame() {
       if (!modelLoaded || video.readyState < 2) return;
-      const result = segmentation.segmentForVideo(video, performance.now());
-      processCtx.clearRect(0, 0, processCanvas.width, processCanvas.height);
-      processCtx.drawImage(video, 0, 0);
-      if (removeBackgroundActive && result.confidenceMasks?.length) {
-        const imageData = processCtx.getImageData(0, 0, processCanvas.width, processCanvas.height);
-        const pixels = imageData.data;
-        const mask = result.confidenceMasks[0];
-        const maskData = mask.getAsFloat32Array();
-        const scaleX = mask.width / processCanvas.width;
-        const scaleY = mask.height / processCanvas.height;
-        for (let y = 0; y < processCanvas.height; y++) {
-          for (let x = 0; x < processCanvas.width; x++) {
-            const mx = Math.floor(x * scaleX);
-            const my = Math.floor(y * scaleY);
-            const confidence = maskData[my * mask.width + mx] || 0;
-            if (confidence < 0.4) {
-              const idx = (y * processCanvas.width + x) * 4;
-              pixels[idx + 3] = 0;
+      segmentation.segmentForVideo(video, performance.now(), (result) => {
+        processCtx.clearRect(0, 0, processCanvas.width, processCanvas.height);
+        processCtx.drawImage(video, 0, 0);
+        if (removeBackgroundActive && result.confidenceMasks?.length) {
+          const imageData = processCtx.getImageData(0, 0, processCanvas.width, processCanvas.height);
+          const pixels = imageData.data;
+          const mask = result.confidenceMasks[0];
+          const maskData = mask.getAsFloat32Array();
+          const scaleX = mask.width / processCanvas.width;
+          const scaleY = mask.height / processCanvas.height;
+          for (let y = 0; y < processCanvas.height; y++) {
+            for (let x = 0; x < processCanvas.width; x++) {
+              const mx = Math.floor(x * scaleX);
+              const my = Math.floor(y * scaleY);
+              const confidence = maskData[my * mask.width + mx] || 0;
+              if (confidence < 0.4) {
+                const idx = (y * processCanvas.width + x) * 4;
+                pixels[idx + 3] = 0;
+              }
             }
           }
+          processCtx.putImageData(imageData, 0, 0);
         }
-        processCtx.putImageData(imageData, 0, 0);
-      }
-      outputCtx.clearRect(0, 0, outputWidth, outputHeight);
-      if (backgroundImage) drawTransformedImage(outputCtx, backgroundImage, transforms.background, outputWidth, outputHeight);
-      drawTransformedImage(outputCtx, processCanvas, transforms.person, outputWidth, outputHeight);
-      if (overlayImage) drawTransformedImage(outputCtx, overlayImage, transforms.overlay, outputWidth, outputHeight);
+        result.close();
+        outputCtx.clearRect(0, 0, outputWidth, outputHeight);
+        if (backgroundImage) drawTransformedImage(outputCtx, backgroundImage, transforms.background, outputWidth, outputHeight);
+        drawTransformedImage(outputCtx, processCanvas, transforms.person, outputWidth, outputHeight);
+        if (overlayImage) drawTransformedImage(outputCtx, overlayImage, transforms.overlay, outputWidth, outputHeight);
+      });
     }
 
     function loop() {
