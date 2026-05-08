@@ -248,7 +248,7 @@
             constructor(fullText) {
                 this.scriptWords = this.normalize(fullText).split(" ").filter(w => w.length > 0);
                 this.currentWordIndex = 0;
-                this.searchWindow = 40; 
+                this.searchWindow = 25; 
                 this.nGramSize = 3; 
             }
 
@@ -330,7 +330,7 @@
             }
         });
 
-        // --- SISTEMA DE RECONOCIMIENTO DE VOZ ORIGINAL ---
+        // --- SISTEMA DE RECONOCIMIENTO DE VOZ ORIGINAL RESTAURADO ---
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         let recognition = null;
 
@@ -341,22 +341,28 @@
             recognition.lang = 'es-ES';
 
             recognition.onresult = (event) => {
-                let interimTranscript = '';
-                // Acumulación simple que funcionaba perfecto
+                let transcript = '';
+                
+                // Procesamiento original intacto: acumula el resultado más reciente
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    interimTranscript += event.results[i][0].transcript;
+                    transcript += event.results[i][0].transcript;
                 }
                 
-                currentSubtitleText = interimTranscript;
-                subtitle.innerText = currentSubtitleText;
-                subtitle.classList.remove('subtitle-hidden');
-                subtitle.classList.remove('subtitle-error');
-
-                if (voiceTracker && interimTranscript.trim() !== '') {
-                    const progress = voiceTracker.calculateProgress(interimTranscript);
-                    const maxScroll = scrollContainer.scrollHeight - scrollContainer.clientHeight;
-                    if (maxScroll > 0) {
-                        scrollContainer.scrollTo({ top: maxScroll * progress, behavior: 'smooth' });
+                currentSubtitleText = transcript;
+                
+                if (currentSubtitleText.trim() !== '') {
+                    subtitle.innerText = currentSubtitleText;
+                    subtitle.classList.remove('subtitle-hidden');
+                    subtitle.classList.remove('subtitle-error');
+    
+                    if (voiceTracker) {
+                        const progress = voiceTracker.calculateProgress(currentSubtitleText);
+                        const maxScroll = textContainer.scrollHeight - scrollContainer.clientHeight;
+                        
+                        if (maxScroll > 0) {
+                            const targetY = maxScroll * progress;
+                            scrollContainer.scrollTo({ top: targetY, behavior: 'smooth' });
+                        }
                     }
                 }
             };
