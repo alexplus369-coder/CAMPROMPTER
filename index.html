@@ -5,9 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Teleprompter Pro Studio</title>
     
-    <!-- Carga de MediaPipe -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.js" crossorigin="anonymous"></script>
-
     <style>
         :root {
             --bg-color: #0f172a;
@@ -290,7 +287,7 @@
             <option value="16:9">📺 16:9</option>
         </select>
         
-        <!-- Nuevos Controles de Fondo Virtual -->
+        <!-- Controles de Fondo Virtual -->
         <button id="btn-bg-toggle" title="Activar Croma con IA">🪄 Fondo: Off</button>
         <button id="btn-bg-select" title="Cambiar Fondo" style="display:none; background-color: #6366f1;">📁 Imagen/Video</button>
         <input type="file" id="file-bg" accept="image/*,video/*" style="display:none;">
@@ -327,21 +324,21 @@
     <div id="focus-zone" class="hidden"></div>
     <div id="live-subtitle" class="subtitle-hidden">Esperando...</div>
 
-    <!-- Pantalla de Previsualización y Descarga (Modificada) -->
+    <!-- Pantalla de Previsualización y Descarga (Solución para Móviles) -->
     <div id="preview-overlay" class="hidden">
         <h2 class="title-preview">¡Grabación Terminada!</h2>
-        <p style="color: #94a3b8; text-align: center;">Revisa tu video y guárdalo.</p>
-        
+        <p style="color: #94a3b8; text-align: center;">Revisa tu video y guárdalo en tu galería.</p>
         <video id="preview-video" controls playsinline></video>
-        
         <div class="preview-actions">
-            <!-- Ahora es un BUTTON en lugar de un enlace A para invocar a Android -->
-            <button id="btn-download-video" class="btn btn-download">⬇️ Guardar / Compartir</button>
+            <a id="btn-download-video" class="btn btn-download">⬇️ Descargar Video</a>
             <button id="btn-close-preview" class="btn" style="background-color: var(--danger-color);">Cerrar y Volver</button>
         </div>
     </div>
 
-    <script>
+    <!-- SCRIPT TIPO MODULE: Carga la IA de forma segura como en CamGrab -->
+    <script type="module">
+        import { SelfieSegmentation, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm';
+
         /** ALGORITMO VOICE TRACKER */
         class VoiceTracker {
             constructor(fullText) {
@@ -540,14 +537,10 @@
         document.getElementById('btn-scroll-slower').addEventListener('click', () => { scrollSpeed = Math.max(0.5, scrollSpeed - 0.5); });
         document.getElementById('btn-scroll-faster').addEventListener('click', () => { scrollSpeed = Math.min(5.0, scrollSpeed + 0.5); });
 
-        // --- FONDO VIRTUAL IA ---
+        // --- FONDO VIRTUAL IA (USANDO MODULO NATIVO COMO EN CAMGRAB) ---
         async function loadSegmentationModel() {
             if (segmenter || isModelLoading) return;
-            if (!window.FilesetResolver || !window.SelfieSegmentation) {
-                showMessage("La biblioteca de IA no cargó correctamente.", "error");
-                return;
-            }
-
+            
             isModelLoading = true;
             showMessage("Descargando IA de Fondo (MediaPipe)... ⏳", "info");
             
@@ -556,7 +549,7 @@
                 segmenter = await SelfieSegmentation.createFromOptions(vision, {
                     baseOptions: {
                         modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/selfie_segmenter/selfie_segmentation/float16/latest/selfie_segmenter.tflite',
-                        delegate: "GPU"
+                        // Removido "delegate: GPU" para maximizar la compatibilidad en todos los Android
                     },
                     runningMode: "VIDEO",
                     outputConfidenceMasks: true
@@ -685,6 +678,7 @@
                         const tracks = [...canvasStream.getVideoTracks(), ...finalAudioStream.getAudioTracks()];
                         const combinedStream = new MediaStream(tracks);
 
+                        // Búsqueda de Códec Soportado (Para evitar fallos al guardar)
                         const mimeTypesToTry = [
                             'video/webm;codecs=vp9,opus',
                             'video/webm;codecs=vp8,opus',
@@ -726,8 +720,7 @@
                             const extension = selectedMimeType.includes('mp4') ? 'mp4' : 'webm';
                             const fileName = isIARecording ? `Teleprompter_IA${formatName}.${extension}` : `Teleprompter${formatName}.${extension}`;
                             
-                            // Pasamos el Blob real a la pantalla de previsualización
-                            showPreviewScreen(blob, videoUrl, fileName);
+                            showPreviewScreen(videoUrl, fileName);
                         };
 
                         mediaRecorder.start();
@@ -752,38 +745,18 @@
             }
         }
 
-        // --- PANTALLA DE PREVISUALIZACIÓN Y COMPARTIR NATIVO ---
-        function showPreviewScreen(blob, videoUrl, fileName) {
+        // --- PANTALLA DE PREVISUALIZACIÓN Y DESCARGA ---
+        function showPreviewScreen(videoUrl, fileName) {
             const overlay = document.getElementById('preview-overlay');
             const videoElem = document.getElementById('preview-video');
             const btnDownload = document.getElementById('btn-download-video');
             const btnClose = document.getElementById('btn-close-preview');
 
             videoElem.src = videoUrl;
+            btnDownload.href = videoUrl;
+            btnDownload.download = fileName;
+
             overlay.classList.remove('hidden');
-
-            // Al hacer clic en descargar/compartir
-            btnDownload.onclick = async () => {
-                // Creamos un Objeto de Archivo a partir del Blob
-                const file = new File([blob], fileName, { type: blob.type });
-
-                // Verificamos si el móvil soporta el menú Nativo de Compartir archivos
-                if (navigator.canShare && navigator.canShare({ files: [file] })) {
-                    try {
-                        await navigator.share({
-                            title: 'Video Teleprompter',
-                            files: [file]
-                        });
-                        showMessage("¡Acción completada!", "info");
-                    } catch (err) {
-                        console.log("Menú compartir cerrado o falló. Forzando descarga directa...");
-                        forceDownload(videoUrl, fileName);
-                    }
-                } else {
-                    // Si estamos en PC o un navegador que no soporta Compartir Nativo
-                    forceDownload(videoUrl, fileName);
-                }
-            };
 
             btnClose.onclick = () => {
                 overlay.classList.add('hidden');
@@ -793,16 +766,6 @@
                 showMessage("Lista para nueva grabación.", "info");
                 setTimeout(() => subtitle.classList.add('subtitle-hidden'), 2000);
             };
-        }
-
-        function forceDownload(url, name) {
-            const a = document.createElement('a');
-            a.style.display = 'none';
-            a.href = url;
-            a.download = name;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
         }
 
         // --- RENDERIZADO VISUAL ---
@@ -895,7 +858,7 @@
             animationFrameId = requestAnimationFrame(drawFrame);
         }
 
-        // --- BOTONES INICIALES ---
+        // --- EVENTOS DE BOTONES ---
         document.getElementById('btn-mic').addEventListener('click', () => {
             if (startListeningEngine()) {
                 toolbar.classList.add('hidden');
@@ -912,7 +875,6 @@
             startVideoRecording(true);
         });
 
-        // --- DETENER ---
         function stopAllProcesses() {
             if (isRecordingVideo) {
                 isRecordingVideo = false;
@@ -936,7 +898,7 @@
         
         document.getElementById('floating-stop').addEventListener('click', stopAllProcesses);
 
-        // --- EXTRAS ---
+        // --- HERRAMIENTAS EXTRAS ---
         document.getElementById('btn-mirror').addEventListener('click', () => textContainer.classList.toggle('mirrored'));
         document.getElementById('btn-contrast').addEventListener('click', () => document.body.classList.toggle('high-contrast'));
         document.getElementById('btn-focus').addEventListener('click', () => document.getElementById('focus-zone').classList.toggle('hidden'));
