@@ -1,625 +1,564 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>CamGrab Pro – Config Guardable</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      background: #111;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      overflow: hidden;
-      font-family: system-ui, sans-serif;
-    }
-    #app {
-      position: relative;
-      width: 100vw;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    .canvas-container {
-      position: relative;
-      flex: 1;
-      width: 100%;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      overflow: hidden;
-    }
-    video, #processCanvas {
-      position: absolute;
-      opacity: 0;
-    }
-    #outputCanvas {
-      display: block;
-      max-width: 100%;
-      max-height: 100%;
-      object-fit: contain;
-      background: transparent;
-      touch-action: none;
-    }
-    #status {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      right: 10px;
-      text-align: center;
-      color: white;
-      background: rgba(0,0,0,0.6);
-      padding: 6px 12px;
-      border-radius: 20px;
-      font-size: 13px;
-      z-index: 10;
-      pointer-events: none;
-    }
-    #fps {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      color: white;
-      background: rgba(0,0,0,0.6);
-      padding: 2px 10px;
-      border-radius: 6px;
-      font-size: 13px;
-      z-index: 10;
-    }
-    .controls-panel {
-      background: rgba(0,0,0,0.75);
-      backdrop-filter: blur(12px);
-      padding: 10px;
-      border-radius: 16px;
-      margin: 10px auto;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      align-items: center;
-      justify-content: center;
-      z-index: 20;
-      width: fit-content;
-      max-width: 95vw;
-    }
-    .btn, select, .file-label {
-      background: rgba(255,255,255,0.15);
-      color: white;
-      border: 1px solid rgba(255,255,255,0.25);
-      padding: 10px 14px;
-      border-radius: 100px;
-      font-size: 14px;
-      cursor: pointer;
-      white-space: nowrap;
-      -webkit-tap-highlight-color: transparent;
-      transition: background 0.2s;
-      outline: none;
-      text-decoration: none;
-    }
-    .btn.active { background: #4CAF50; border-color: #4CAF50; }
-    .btn.recording { background: #F44336; border-color: #F44336; animation: pulse 1.5s infinite; }
-    .layer-btn.active-layer { background: #2196F3; border-color: #2196F3; }
-    @keyframes pulse {
-      0% { box-shadow: 0 0 0 0 rgba(244,67,54,0.7); }
-      70% { box-shadow: 0 0 0 8px rgba(244,67,54,0); }
-      100% { box-shadow: 0 0 0 0 rgba(244,67,54,0); }
-    }
-    .file-label {
-      display: inline-block;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 100px;
-    }
-    .small-btn { padding: 6px 10px; font-size: 12px; }
-    #configControls { display: flex; gap: 4px; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teleprompter Pro Studio</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --text-color: #f8fafc;
+            --accent-color: #10b981;
+            --danger-color: #ef4444;
+            --panel-bg: rgba(30, 41, 59, 0.95);
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        /* --- Panel de Control --- */
+        #toolbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            background: var(--panel-bg);
+            padding: 15px 20px;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 15px;
+            z-index: 100;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, opacity 0.3s ease;
+        }
+
+        #toolbar.hidden {
+            transform: translateY(-100%);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        button {
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        button:hover { background-color: #2563eb; }
+        button:active { transform: scale(0.95); }
+        
+        /* Estilos específicos de botones */
+        #btn-record-ia { background-color: #8b5cf6; }
+        #btn-record-ia:hover { background-color: #7c3aed; }
+        .active-audio { background-color: #f59e0b !important; }
+
+        /* --- Contenedor del Texto --- */
+        #scroll-container {
+            flex-grow: 1;
+            overflow-y: auto;
+            scroll-behavior: smooth;
+            padding: 0 10%;
+            scrollbar-width: none;
+            background: rgba(15, 23, 42, 0.5); /* Semi-transparente para ver cámara */
+        }
+        #scroll-container::-webkit-scrollbar { display: none; }
+
+        #teleprompter-text {
+            font-size: 64px;
+            line-height: 1.6;
+            font-weight: 600;
+            text-align: center;
+            padding-top: 40vh;
+            padding-bottom: 60vh;
+            outline: none;
+            transition: transform 0.3s ease;
+        }
+
+        .mirrored { transform: scaleX(-1); }
+        .placeholder { color: #64748b; font-weight: normal; }
+
+        /* --- Subtítulos en Vivo --- */
+        #live-subtitle {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: var(--accent-color);
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-size: 24px;
+            font-weight: bold;
+            z-index: 100;
+            pointer-events: none;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            text-align: center;
+            max-width: 80%;
+            transition: opacity 0.3s;
+        }
+        .subtitle-hidden { opacity: 0; }
+
+        /* --- Estilos de Cámara --- */
+        #camera-feed {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            z-index: -1;
+            opacity: 0;
+            transition: opacity 0.5s;
+        }
+        #camera-feed.active { opacity: 1; }
+
+        /* --- Alto Contraste --- */
+        body.high-contrast {
+            --bg-color: #000000;
+            --text-color: #eab308;
+            --accent-color: #eab308;
+            --panel-bg: rgba(0, 0, 0, 0.95);
+        }
+        body.high-contrast #scroll-container { background: rgba(0, 0, 0, 0.85); }
+        body.high-contrast #teleprompter-text { font-weight: 800; }
+
+        /* --- Zona de Enfoque --- */
+        #focus-zone {
+            position: fixed;
+            top: 50%;
+            left: 0;
+            width: 100%;
+            height: 100px;
+            transform: translateY(-50%);
+            border-top: 2px dashed var(--accent-color);
+            border-bottom: 2px dashed var(--accent-color);
+            background-color: rgba(0, 0, 0, 0.2);
+            pointer-events: none;
+            z-index: 40;
+            opacity: 1;
+            transition: opacity 0.3s;
+        }
+        #focus-zone.hidden { opacity: 0; }
+
+        /* --- BOTÓN FLOTANTE DE DETENER --- */
+        #floating-stop {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background-color: var(--danger-color);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            cursor: pointer;
+            z-index: 200;
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.5);
+            transition: transform 0.2s, opacity 0.3s;
+            opacity: 0;
+            pointer-events: none;
+            animation: pulse-stop 2s infinite;
+        }
+        #floating-stop.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        #floating-stop:hover { transform: scale(1.1); }
+
+        @keyframes pulse-stop {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+    </style>
 </head>
 <body>
-  <div id="app">
-    <video id="video" playsinline autoplay muted></video>
-    <canvas id="processCanvas"></canvas>
-    <div class="canvas-container">
-      <canvas id="outputCanvas"></canvas>
-      <div id="status">Cargando modelo…</div>
-      <div id="fps">-- FPS</div>
+
+    <!-- Elementos Ocultos -->
+    <video id="camera-feed" autoplay muted playsinline></video>
+    <canvas id="recording-canvas" style="display: none;"></canvas>
+
+    <!-- Panel de Controles -->
+    <div id="toolbar">
+        <button id="btn-record" title="Grabar Video Normal">
+            <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="M8 13A5 5 0 1 1 8 3a5 5 0 0 1 0 10z"/><path d="M8 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg>
+            Grabar Video
+        </button>
+        <button id="btn-record-ia" title="Grabar con Corrección Visual IA">
+            <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="M10.478 2.347a.5.5 0 0 0-.956 0l-.544 1.632a.5.5 0 0 1-.318.318l-1.632.544a.5.5 0 0 0 0 .956l1.632.544a.5.5 0 0 1 .318.318l.544 1.632a.5.5 0 0 0 .956 0l.544-1.632a.5.5 0 0 1 .318-.318l1.632-.544a.5.5 0 0 0 0-.956l-1.632-.544a.5.5 0 0 1-.318-.318l-.544-1.632zM5.5 6.5A3.5 3.5 0 1 0 9 10a3.5 3.5 0 0 0-3.5-3.5z"/></svg>
+            Rec IA ✨
+        </button>
+        <button id="btn-mic" title="Solo mover el texto (Sin grabar)">
+            <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0V3z"/><path d="M3.5 6.5A.5.5 0 0 1 4 7v1a4 4 0 0 0 8 0V7a.5.5 0 0 1 1 0v1a5 5 0 0 1-4.5 4.975V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 .5-.5z"/></svg>
+            Solo Voz
+        </button>
+        <button id="btn-mirror">🪞 Espejo</button>
+        <button id="btn-enhance-audio" title="Filtro de Audio Studio">🎙️ Audio: Normal</button>
+        <button id="btn-font-down" title="Reducir Letra">A-</button>
+        <button id="btn-font-up" title="Aumentar Letra">A+</button>
+        <button id="btn-contrast" title="Modo Alto Contraste">🌓 Contraste</button>
+        <button id="btn-focus" title="Línea de Enfoque">⌖ Enfoque</button>
+        <button id="btn-reset">↺ Arriba</button>
     </div>
-    <div class="controls-panel">
-      <select id="formatSelect">
-        <option value="9:16:1080:1920">9:16 TikTok</option>
-        <option value="16:9:1920:1080" selected>16:9 YouTube</option>
-        <option value="1:1:1080:1080">1:1 Instagram</option>
-        <option value="4:5:1080:1350">4:5 Instagram</option>
-        <option value="9:16:720:1280">9:16 720p</option>
-        <option value="16:9:1280:720">16:9 720p</option>
-      </select>
-      <button id="toggleBtn" class="btn active">Fondo off ✓</button>
-      <button id="captureBtn" class="btn">📸 Foto</button>
-      <button id="recordBtn" class="btn">⏺️ Grabar</button>
-      <div id="layerControls">
-        <button id="moveBgBtn" class="btn small-btn layer-btn active-layer">Fondo</button>
-        <button id="movePersonBtn" class="btn small-btn layer-btn">Persona</button>
-        <button id="moveOverlayBtn" class="btn small-btn layer-btn">Plantilla</button>
-      </div>
-      <label for="bgFileInput" class="file-label btn">📁 Fondo</label>
-      <input type="file" id="bgFileInput" accept="image/png" style="display:none;">
-      <label for="overlayFileInput" class="file-label btn">📁 Plantilla</label>
-      <input type="file" id="overlayFileInput" accept="image/png" style="display:none;">
-      <div id="configControls">
-        <button id="exportConfigBtn" class="btn small-btn">💾 Exportar</button>
-        <button id="importConfigBtn" class="btn small-btn">📂 Importar</button>
-        <input type="file" id="importConfigFile" accept=".json" style="display:none;">
-      </div>
+
+    <!-- Botón Flotante para Detener -->
+    <button id="floating-stop" title="Detener Grabación o Escucha">⏹</button>
+
+    <!-- Área de Texto -->
+    <div id="scroll-container">
+        <div id="teleprompter-text" contenteditable="true" class="placeholder">
+            Haz clic aquí y pega tu guion. <br><br>
+            Asegúrate de dar permisos de cámara y micrófono. <br>Puedes grabar video, usar la IA visual, o simplemente usar 'Solo Voz' para practicar.
+        </div>
     </div>
-  </div>
 
-  <script type="module">
-    import { ImageSegmenter, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.js';
+    <!-- Zona de Enfoque Visual -->
+    <div id="focus-zone" class="hidden"></div>
 
-    // Elementos
-    const video = document.getElementById('video');
-    const processCanvas = document.getElementById('processCanvas');
-    const processCtx = processCanvas.getContext('2d');
-    const outputCanvas = document.getElementById('outputCanvas');
-    const outputCtx = outputCanvas.getContext('2d');
-    const statusDiv = document.getElementById('status');
-    const fpsDiv = document.getElementById('fps');
-    const toggleBtn = document.getElementById('toggleBtn');
-    const captureBtn = document.getElementById('captureBtn');
-    const recordBtn = document.getElementById('recordBtn');
-    const formatSelect = document.getElementById('formatSelect');
-    const bgFileInput = document.getElementById('bgFileInput');
-    const overlayFileInput = document.getElementById('overlayFileInput');
-    const moveBgBtn = document.getElementById('moveBgBtn');
-    const movePersonBtn = document.getElementById('movePersonBtn');
-    const moveOverlayBtn = document.getElementById('moveOverlayBtn');
-    const exportConfigBtn = document.getElementById('exportConfigBtn');
-    const importConfigBtn = document.getElementById('importConfigBtn');
-    const importConfigFile = document.getElementById('importConfigFile');
+    <!-- Subtítulos -->
+    <div id="live-subtitle" class="subtitle-hidden">Esperando tu voz...</div>
 
-    let segmentation, modelLoaded = false;
-    let removeBackgroundActive = true;
-    let lastTimestamp = 0, frameCount = 0, fps = 0;
-    let backgroundImage = null;
-    let overlayImage = null;
-    let outputWidth = 1920, outputHeight = 1080;
-    let activeLayer = 'background';
-    const transforms = {
-      background: { x: 0, y: 0, scale: 1 },
-      person: { x: 0, y: 0, scale: 1 },
-      overlay: { x: 0, y: 0, scale: 1 }
-    };
-    let touchState = null;
-    let mediaRecorder = null, recordedChunks = [], isRecording = false;
-    let recordStartTime = 0, recordTimerInterval = null;
-
-    // ========== Formato de salida ==========
-    function updateOutputDimensions() {
-      const val = formatSelect.value.split(':');
-      outputWidth = parseInt(val[2]);
-      outputHeight = parseInt(val[3]);
-      outputCanvas.width = outputWidth;
-      outputCanvas.height = outputHeight;
-      outputCanvas.style.aspectRatio = `${outputWidth}/${outputHeight}`;
-    }
-    formatSelect.addEventListener('change', updateOutputDimensions);
-    updateOutputDimensions();
-
-    // ========== Cámara ==========
-    async function setupCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
-        });
-        video.srcObject = stream;
-        video.addEventListener('loadedmetadata', () => {
-          processCanvas.width = video.videoWidth;
-          processCanvas.height = video.videoHeight;
-          // Centrar y escalar persona para cubrir el canvas de salida
-          const scaleX = outputWidth / video.videoWidth;
-          const scaleY = outputHeight / video.videoHeight;
-          transforms.person.scale = Math.max(scaleX, scaleY);
-          transforms.person.x = outputWidth / 2;
-          transforms.person.y = outputHeight / 2;
-          transforms.background.x = outputWidth / 2;
-          transforms.background.y = outputHeight / 2;
-          transforms.overlay.x = outputWidth / 2;
-          transforms.overlay.y = outputHeight / 2;
-          statusDiv.textContent = 'Modelo cargado. Iniciando…';
-        });
-      } catch (err) {
-        statusDiv.textContent = 'Error cámara: ' + err.message;
-      }
-    }
-
-    // ========== Modelo ==========
-    async function loadModel() {
-      statusDiv.textContent = 'Descargando modelo…';
-      const vision = await FilesetResolver.forVisionTasks(
-        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
-      );
-      segmentation = await ImageSegmenter.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/1/selfie_segmenter.tflite'
-        },
-        runningMode: 'VIDEO',
-        outputConfidenceMasks: true,
-        outputCategoryMask: false
-      });
-      modelLoaded = true;
-      statusDiv.textContent = 'Listo – toca una capa para ajustar';
-    }
-
-    // ========== Composición ==========
-    function drawTransformedImage(ctx, img, transform, canvasW, canvasH) {
-      if (!img) return;
-      const imgW = img.width * transform.scale;
-      const imgH = img.height * transform.scale;
-      const x = transform.x - imgW / 2;
-      const y = transform.y - imgH / 2;
-      ctx.drawImage(img, x, y, imgW, imgH);
-    }
-
-    function composeFrame() {
-      if (!modelLoaded || video.readyState < 2) return;
-      segmentation.segmentForVideo(video, performance.now(), (result) => {
-        processCtx.clearRect(0, 0, processCanvas.width, processCanvas.height);
-        processCtx.drawImage(video, 0, 0);
-        if (removeBackgroundActive && result.confidenceMasks?.length) {
-          const imageData = processCtx.getImageData(0, 0, processCanvas.width, processCanvas.height);
-          const pixels = imageData.data;
-          const mask = result.confidenceMasks[0];
-          const maskData = mask.getAsFloat32Array();
-          const scaleX = mask.width / processCanvas.width;
-          const scaleY = mask.height / processCanvas.height;
-          for (let y = 0; y < processCanvas.height; y++) {
-            for (let x = 0; x < processCanvas.width; x++) {
-              const mx = Math.floor(x * scaleX);
-              const my = Math.floor(y * scaleY);
-              const confidence = maskData[my * mask.width + mx] || 0;
-              if (confidence < 0.4) {
-                const idx = (y * processCanvas.width + x) * 4;
-                pixels[idx + 3] = 0;
-              }
+    <script>
+        /** ALGORITMO VOICE TRACKER */
+        class VoiceTracker {
+            constructor(fullText) {
+                this.scriptWords = this.normalize(fullText).split(" ").filter(w => w.length > 0);
+                this.currentWordIndex = 0;
+                this.searchWindow = 25;
+                this.nGramSize = 3;
             }
-          }
-          processCtx.putImageData(imageData, 0, 0);
+
+            normalize(text) {
+                return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ");
+            }
+
+            calculateProgress(partialSpoken) {
+                if (this.scriptWords.length === 0) return 0;
+                const spokenWords = this.normalize(partialSpoken).split(" ").filter(w => w.length > 0);
+                if (spokenWords.length < this.nGramSize) return this.getScrollPercentage();
+
+                const recentSpoken = spokenWords.slice(-this.nGramSize);
+                const startIndex = Math.max(0, this.currentWordIndex - 5);
+                const endIndex = Math.min(this.scriptWords.length - this.nGramSize, this.currentWordIndex + this.searchWindow);
+
+                let bestMatchIndex = this.currentWordIndex;
+                let highestSimilarity = 0.0;
+
+                for (let i = startIndex; i <= endIndex; i++) {
+                    const scriptSlice = this.scriptWords.slice(i, i + this.nGramSize);
+                    const similarity = this.calculateSimilarity(recentSpoken, scriptSlice);
+                    if (similarity > highestSimilarity && similarity >= 0.66) {
+                        highestSimilarity = similarity;
+                        bestMatchIndex = i;
+                    }
+                }
+
+                if (highestSimilarity >= 0.66) {
+                    this.currentWordIndex = bestMatchIndex + Math.floor(this.nGramSize / 2);
+                }
+                return this.getScrollPercentage();
+            }
+
+            calculateSimilarity(spoken, scriptSlice) {
+                let matches = 0;
+                for (let j = 0; j < spoken.length; j++) {
+                    if (spoken[j] === scriptSlice[j]) matches++;
+                }
+                return matches / spoken.length;
+            }
+
+            getScrollPercentage() {
+                if (this.scriptWords.length === 0) return 0;
+                return Math.max(0, Math.min(1, this.currentWordIndex / this.scriptWords.length));
+            }
         }
-        result.close();
-        outputCtx.clearRect(0, 0, outputWidth, outputHeight);
-        if (backgroundImage) drawTransformedImage(outputCtx, backgroundImage, transforms.background, outputWidth, outputHeight);
-        drawTransformedImage(outputCtx, processCanvas, transforms.person, outputWidth, outputHeight);
-        if (overlayImage) drawTransformedImage(outputCtx, overlayImage, transforms.overlay, outputWidth, outputHeight);
-      });
-    }
 
-    function loop() {
-      if (!modelLoaded) { requestAnimationFrame(loop); return; }
-      composeFrame();
-      frameCount++;
-      const now = performance.now();
-      if (now - lastTimestamp >= 1000) {
-        fps = Math.round(frameCount / ((now - lastTimestamp) / 1000));
-        frameCount = 0; lastTimestamp = now;
-        fpsDiv.textContent = `${fps} FPS`;
-      }
-      requestAnimationFrame(loop);
-    }
+        // --- REFERENCIAS DOM ---
+        const textContainer = document.getElementById('teleprompter-text');
+        const scrollContainer = document.getElementById('scroll-container');
+        const subtitle = document.getElementById('live-subtitle');
+        const toolbar = document.getElementById('toolbar');
+        const floatingStop = document.getElementById('floating-stop');
+        
+        const videoElement = document.getElementById('camera-feed');
+        const recordingCanvas = document.getElementById('recording-canvas');
+        const ctx = recordingCanvas.getContext('2d');
 
-    // ========== Capa activa ==========
-    function setActiveLayer(layer) {
-      activeLayer = layer;
-      moveBgBtn.classList.toggle('active-layer', layer === 'background');
-      movePersonBtn.classList.toggle('active-layer', layer === 'person');
-      moveOverlayBtn.classList.toggle('active-layer', layer === 'overlay');
-    }
-    moveBgBtn.addEventListener('click', () => setActiveLayer('background'));
-    movePersonBtn.addEventListener('click', () => setActiveLayer('person'));
-    moveOverlayBtn.addEventListener('click', () => setActiveLayer('overlay'));
+        // Variables de Estado Globals
+        let voiceTracker = null;
+        let isListening = false;
+        let isRecordingVideo = false;
+        let isIARecording = false;
+        let useAudioEnhancement = false;
+        
+        let recognition = null;
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let animationFrameId = null;
+        let currentSubtitleText = "";
 
-    // ========== Gestos táctiles ==========
-    function getCanvasTouchPos(touch) {
-      const rect = outputCanvas.getBoundingClientRect();
-      const scaleX = outputWidth / rect.width;
-      const scaleY = outputHeight / rect.height;
-      return {
-        x: (touch.clientX - rect.left) * scaleX,
-        y: (touch.clientY - rect.top) * scaleY
-      };
-    }
-    outputCanvas.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      if (e.touches.length === 1) {
-        const pos = getCanvasTouchPos(e.touches[0]);
-        touchState = {
-          type: 'drag',
-          layer: activeLayer,
-          startTransform: { ...transforms[activeLayer] },
-          startPos: pos
-        };
-      } else if (e.touches.length === 2) {
-        const pos1 = getCanvasTouchPos(e.touches[0]);
-        const pos2 = getCanvasTouchPos(e.touches[1]);
-        const dist = Math.hypot(pos2.x - pos1.x, pos2.y - pos1.y);
-        touchState = {
-          type: 'pinch',
-          layer: activeLayer,
-          startTransform: { ...transforms[activeLayer] },
-          initialPinchDist: dist,
-          pinchCenter: { x: (pos1.x + pos2.x) / 2, y: (pos1.y + pos2.y) / 2 }
-        };
-      }
-    }, { passive: false });
-    outputCanvas.addEventListener('touchmove', (e) => {
-      e.preventDefault();
-      if (!touchState) return;
-      const t = transforms[touchState.layer];
-      if (touchState.type === 'drag' && e.touches.length === 1) {
-        const pos = getCanvasTouchPos(e.touches[0]);
-        t.x = touchState.startTransform.x + (pos.x - touchState.startPos.x);
-        t.y = touchState.startTransform.y + (pos.y - touchState.startPos.y);
-      } else if (touchState.type === 'pinch' && e.touches.length === 2) {
-        const pos1 = getCanvasTouchPos(e.touches[0]);
-        const pos2 = getCanvasTouchPos(e.touches[1]);
-        const dist = Math.hypot(pos2.x - pos1.x, pos2.y - pos1.y);
-        if (touchState.initialPinchDist > 0) {
-          const newScale = touchState.startTransform.scale * (dist / touchState.initialPinchDist);
-          t.scale = Math.min(5, Math.max(0.3, newScale));
-        }
-      }
-    }, { passive: false });
-    outputCanvas.addEventListener('touchend', (e) => {
-      e.preventDefault();
-      touchState = null;
-    });
-
-    // ========== Carga de imágenes con auto‑config ==========
-    function updateBgFileLabel(name) {
-      const label = document.querySelector('label[for="bgFileInput"]');
-      if (label) label.textContent = name || '📁 Fondo';
-    }
-    function updateOverlayFileLabel(name) {
-      const label = document.querySelector('label[for="overlayFileInput"]');
-      if (label) label.textContent = name || '📁 Plantilla';
-    }
-
-    function loadBackgroundFromFile(file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const img = new Image();
-        img.onload = () => {
-          backgroundImage = img;
-          updateBgFileLabel(file.name);
-          autoSaveConfig();
-        };
-        img.src = reader.result;
-      };
-      reader.readAsDataURL(file);
-    }
-
-    function loadOverlayFromFile(file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const img = new Image();
-        img.onload = () => {
-          overlayImage = img;
-          updateOverlayFileLabel(file.name);
-          autoSaveConfig();
-        };
-        img.src = reader.result;
-      };
-      reader.readAsDataURL(file);
-    }
-
-    bgFileInput.addEventListener('change', (e) => {
-      if (e.target.files[0]) loadBackgroundFromFile(e.target.files[0]);
-    });
-    overlayFileInput.addEventListener('change', (e) => {
-      if (e.target.files[0]) loadOverlayFromFile(e.target.files[0]);
-    });
-
-    // ========== Botones comunes ==========
-    toggleBtn.addEventListener('click', () => {
-      removeBackgroundActive = !removeBackgroundActive;
-      toggleBtn.textContent = removeBackgroundActive ? 'Fondo off ✓' : 'Fondo original';
-      toggleBtn.classList.toggle('active', removeBackgroundActive);
-      autoSaveConfig();
-    });
-
-    captureBtn.addEventListener('click', () => {
-      outputCanvas.toBlob(blob => {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `captura_${Date.now()}.png`;
-        a.click();
-        URL.revokeObjectURL(url);
-      }, 'image/png');
-    });
-
-    // Grabación (misma lógica)
-    function updateRecordTimer() {
-      if (!isRecording) return;
-      const elapsed = Math.floor((Date.now() - recordStartTime) / 1000);
-      const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
-      const s = String(elapsed % 60).padStart(2, '0');
-      recordBtn.innerHTML = `⏺️ Grabar ${m}:${s}`;
-    }
-    async function startRecording() {
-      recordedChunks = [];
-      const stream = outputCanvas.captureStream(30);
-      const mimeList = ['video/webm;codecs=vp9.0', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
-      let mime = '';
-      for (const m of mimeList) if (MediaRecorder.isTypeSupported(m)) { mime = m; break; }
-      if (!mime) { alert('Navegador no soporta grabación WebM.'); return; }
-      mediaRecorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 3000000 });
-      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(recordedChunks, { type: mime });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `video_${Date.now()}.webm`;
-        a.click();
-        URL.revokeObjectURL(url);
-        recordedChunks = [];
-        recordBtn.classList.remove('recording');
-        recordBtn.innerHTML = '⏺️ Grabar';
-        clearInterval(recordTimerInterval);
-        statusDiv.textContent = 'Video guardado';
-      };
-      mediaRecorder.start();
-      isRecording = true;
-      recordStartTime = Date.now();
-      recordBtn.classList.add('recording');
-      updateRecordTimer();
-      recordTimerInterval = setInterval(updateRecordTimer, 200);
-      statusDiv.textContent = 'Grabando...';
-    }
-    function stopRecording() {
-      if (mediaRecorder && isRecording) {
-        mediaRecorder.stop();
-        isRecording = false;
-      }
-    }
-    recordBtn.addEventListener('click', () => {
-      if (!modelLoaded) { alert('Espera el modelo'); return; }
-      isRecording ? stopRecording() : startRecording();
-    });
-
-    // ========== Persistencia de configuración ==========
-    const STORAGE_KEY = 'camgrab_config';
-
-    function getConfig() {
-      return {
-        format: formatSelect.value,
-        removeBackground: removeBackgroundActive,
-        transforms: {
-          background: { ...transforms.background },
-          person: { ...transforms.person },
-          overlay: { ...transforms.overlay }
-        },
-        activeLayer,
-        backgroundImageBase64: backgroundImage ? backgroundImage.src : null,
-        overlayImageBase64: overlayImage ? overlayImage.src : null
-      };
-    }
-
-    function autoSaveConfig() {
-      try {
-        const config = getConfig();
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-      } catch (e) {
-        console.warn('No se pudo guardar config automáticamente:', e);
-      }
-    }
-
-    async function loadConfig(config) {
-      // Restaurar formato
-      if (config.format) {
-        formatSelect.value = config.format;
-        updateOutputDimensions();
-      }
-      // Restaurar eliminación fondo
-      removeBackgroundActive = config.removeBackground ?? true;
-      toggleBtn.textContent = removeBackgroundActive ? 'Fondo off ✓' : 'Fondo original';
-      toggleBtn.classList.toggle('active', removeBackgroundActive);
-      // Transformaciones
-      if (config.transforms) {
-        for (const layer of ['background', 'person', 'overlay']) {
-          if (config.transforms[layer]) {
-            transforms[layer] = { ...config.transforms[layer] };
-          }
-        }
-      }
-      // Capa activa
-      if (config.activeLayer) setActiveLayer(config.activeLayer);
-      // Imágenes
-      const loadImageFromBase64 = (base64) => {
-        return new Promise((resolve) => {
-          if (!base64) return resolve(null);
-          const img = new Image();
-          img.onload = () => resolve(img);
-          img.src = base64;
+        textContainer.addEventListener('focus', function() {
+            if (this.classList.contains('placeholder')) {
+                this.innerHTML = '';
+                this.classList.remove('placeholder');
+            }
         });
-      };
-      if (config.backgroundImageBase64) {
-        backgroundImage = await loadImageFromBase64(config.backgroundImageBase64);
-        updateBgFileLabel('(guardado)');
-      } else {
-        backgroundImage = null;
-        updateBgFileLabel('📁 Fondo');
-      }
-      if (config.overlayImageBase64) {
-        overlayImage = await loadImageFromBase64(config.overlayImageBase64);
-        updateOverlayFileLabel('(guardado)');
-      } else {
-        overlayImage = null;
-        updateOverlayFileLabel('📁 Plantilla');
-      }
-    }
 
-    function loadConfigFromLocalStorage() {
-      try {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-          const config = JSON.parse(saved);
-          loadConfig(config);
-          statusDiv.textContent = 'Configuración cargada';
-          setTimeout(() => { if (modelLoaded) statusDiv.textContent = 'Listo'; }, 1500);
+        // --- SISTEMA DE RECONOCIMIENTO DE VOZ ---
+        function initNativeSpeech() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                alert("Tu navegador no soporta el reconocimiento de voz nativo. Usa Chrome o Edge.");
+                return false;
+            }
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'es-ES';
+
+            recognition.onresult = (event) => {
+                let interimTranscript = '';
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    interimTranscript += event.results[i][0].transcript;
+                }
+                currentSubtitleText = interimTranscript;
+                subtitle.innerText = interimTranscript;
+                subtitle.classList.remove('subtitle-hidden');
+
+                if (voiceTracker && interimTranscript.trim() !== '') {
+                    const progress = voiceTracker.calculateProgress(interimTranscript);
+                    const maxScroll = textContainer.scrollHeight - scrollContainer.clientHeight;
+                    if (maxScroll > 0) {
+                        scrollContainer.scrollTo({ top: maxScroll * progress, behavior: 'smooth' });
+                    }
+                }
+            };
+            recognition.onend = () => { if (isListening) recognition.start(); };
+            return true;
         }
-      } catch (e) {
-        console.warn('Error al cargar config:', e);
-      }
-    }
 
-    // Exportar JSON
-    exportConfigBtn.addEventListener('click', () => {
-      const config = getConfig();
-      const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `camgrab_config_${Date.now()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    });
+        function startListeningEngine() {
+            if (textContainer.innerText.trim() === '') {
+                alert("Primero pega o escribe un guion.");
+                return false;
+            }
+            if (!recognition && !initNativeSpeech()) return false;
+            
+            voiceTracker = new VoiceTracker(textContainer.innerText);
+            recognition.start();
+            isListening = true;
+            subtitle.classList.remove('subtitle-hidden');
+            subtitle.innerText = "Te escucho...";
+            return true;
+        }
 
-    // Importar JSON
-    importConfigBtn.addEventListener('click', () => importConfigFile.click());
-    importConfigFile.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      try {
-        const text = await file.text();
-        const config = JSON.parse(text);
-        await loadConfig(config);
-        autoSaveConfig();
-        statusDiv.textContent = 'Configuración importada correctamente';
-      } catch (err) {
-        alert('Error al importar: ' + err.message);
-      } finally {
-        importConfigFile.value = '';
-      }
-    });
+        function stopListeningEngine() {
+            isListening = false;
+            if (recognition) recognition.stop();
+            subtitle.classList.add('subtitle-hidden');
+            currentSubtitleText = "";
+        }
 
-    // Auto‑guardado al modificar cualquier transformación o formato
-    formatSelect.addEventListener('change', autoSaveConfig);
-    // Observar cambios en transforms? Los gestos ya modifican transforms directamente,
-    // así que guardamos en cada frame o en touchend.
-    outputCanvas.addEventListener('touchend', () => {
-      autoSaveConfig();
-    });
+        // --- SISTEMA DE GRABACIÓN DE VIDEO ---
+        async function startVideoRecording(useIA) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: true });
+                videoElement.srcObject = stream;
+                videoElement.classList.add('active');
+                
+                videoElement.onloadedmetadata = () => {
+                    recordingCanvas.width = videoElement.videoWidth;
+                    recordingCanvas.height = videoElement.videoHeight;
+                    isRecordingVideo = true;
+                    isIARecording = useIA;
+                    recordedChunks = [];
+                    
+                    drawFrame(); // Iniciar renderizado visual
 
-    // Inicio
-    async function init() {
-      await setupCamera();
-      await loadModel();
-      loadConfigFromLocalStorage();
-      loop();
-    }
-    init().catch(err => { statusDiv.textContent = 'Error: ' + err.message; });
-  </script>
+                    // Configurar Audio (Normal o Studio/Enhanced)
+                    let finalAudioStream = stream;
+                    if (useAudioEnhancement) {
+                        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                        const source = audioCtx.createMediaStreamSource(stream);
+                        const destination = audioCtx.createMediaStreamDestination();
+
+                        const highpass = audioCtx.createBiquadFilter();
+                        highpass.type = 'highpass'; highpass.frequency.value = 85;
+
+                        const eqLowMid = audioCtx.createBiquadFilter();
+                        eqLowMid.type = 'peaking'; eqLowMid.frequency.value = 400; eqLowMid.Q.value = 1; eqLowMid.gain.value = -4;
+
+                        const eqPresence = audioCtx.createBiquadFilter();
+                        eqPresence.type = 'peaking'; eqPresence.frequency.value = 4000; eqPresence.Q.value = 1; eqPresence.gain.value = 5;
+
+                        const compressor = audioCtx.createDynamicsCompressor();
+                        compressor.threshold.value = -24; compressor.ratio.value = 4;
+
+                        source.connect(highpass); highpass.connect(eqLowMid);
+                        eqLowMid.connect(eqPresence); eqPresence.connect(compressor);
+                        compressor.connect(destination);
+                        finalAudioStream = destination.stream;
+                    }
+
+                    // Mezclar Video (Canvas) + Audio
+                    const canvasStream = recordingCanvas.captureStream(30);
+                    const tracks = [...canvasStream.getVideoTracks(), ...finalAudioStream.getAudioTracks()];
+                    const combinedStream = new MediaStream(tracks);
+
+                    mediaRecorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm' });
+                    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
+                    
+                    mediaRecorder.onstop = () => {
+                        const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = isIARecording ? 'Teleprompter_IA_Studio.webm' : 'Teleprompter_Video.webm';
+                        a.click();
+                        URL.revokeObjectURL(url);
+                    };
+
+                    mediaRecorder.start();
+                    
+                    // Si logramos iniciar el video, arrancamos el motor de voz (teleprompter)
+                    if (!isListening) startListeningEngine();
+                    
+                    // Ocultar barra de herramientas, mostrar botón de parada
+                    toolbar.classList.add('hidden');
+                    floatingStop.classList.add('visible');
+                    textContainer.contentEditable = "false";
+                };
+            } catch (err) {
+                console.error("Error de cámara/micrófono:", err);
+                alert("Asegúrate de dar permisos de Cámara y Micrófono al navegador.");
+            }
+        }
+
+        function stopAllProcesses() {
+            // 1. Detener Video
+            if (isRecordingVideo) {
+                isRecordingVideo = false;
+                mediaRecorder.stop();
+                cancelAnimationFrame(animationFrameId);
+                const stream = videoElement.srcObject;
+                if (stream) stream.getTracks().forEach(track => track.stop());
+                videoElement.classList.remove('active');
+            }
+            
+            // 2. Detener Voz
+            if (isListening) {
+                stopListeningEngine();
+            }
+
+            // 3. Restaurar Interfaz
+            toolbar.classList.remove('hidden');
+            floatingStop.classList.remove('visible');
+            textContainer.contentEditable = "true";
+        }
+
+        // --- RENDERIZADO VISUAL EN CANVAS ---
+        function drawFrame() {
+            if (!isRecordingVideo) return;
+            
+            ctx.save();
+            ctx.translate(recordingCanvas.width, 0);
+            ctx.scale(-1, 1);
+            ctx.drawImage(videoElement, 0, 0, recordingCanvas.width, recordingCanvas.height);
+            ctx.restore();
+
+            if (isIARecording) {
+                const cx = recordingCanvas.width / 2;
+                const cy = recordingCanvas.height * 0.40;
+                const bw = recordingCanvas.width * 0.45;
+                const bh = recordingCanvas.height * 0.15;
+
+                try {
+                    const eyeRegion = ctx.getImageData(cx - bw/2, cy - bh/2, bw, bh);
+                    ctx.putImageData(eyeRegion, cx - bw/2, (cy - bh/2) - 15);
+                } catch(e) {}
+
+                ctx.strokeStyle = "rgba(167, 139, 250, 0.6)";
+                ctx.lineWidth = 2; ctx.setLineDash([8, 8]);
+                ctx.strokeRect(cx - bw/2, cy - bh/2, bw, bh);
+                ctx.font = "bold 18px monospace"; ctx.fillStyle = "rgba(167, 139, 250, 0.9)";
+                ctx.textAlign = "left"; ctx.textBaseline = "bottom";
+                ctx.fillText("◉ AI EYE-CONTACT ACTIVATED", (cx - bw/2), (cy - bh/2) - 8);
+                ctx.setLineDash([]);
+            }
+            
+            if (currentSubtitleText.trim() !== "") {
+                const fontSize = Math.floor(recordingCanvas.width * 0.05);
+                ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+                ctx.fillRect(0, recordingCanvas.height - (fontSize * 3), recordingCanvas.width, fontSize * 3);
+                ctx.font = `bold ${fontSize}px Arial`; ctx.fillStyle = "#10b981";
+                ctx.textAlign = "center"; ctx.textBaseline = "middle";
+                ctx.fillText(currentSubtitleText, recordingCanvas.width / 2, recordingCanvas.height - (fontSize * 1.5));
+            }
+            animationFrameId = requestAnimationFrame(drawFrame);
+        }
+
+        // --- EVENTOS DE BOTONES ---
+        document.getElementById('btn-record').addEventListener('click', () => startVideoRecording(false));
+        document.getElementById('btn-record-ia').addEventListener('click', () => startVideoRecording(true));
+        
+        document.getElementById('btn-mic').addEventListener('click', () => {
+            if (startListeningEngine()) {
+                toolbar.classList.add('hidden');
+                floatingStop.classList.add('visible');
+                textContainer.contentEditable = "false";
+            }
+        });
+
+        floatingStop.addEventListener('click', stopAllProcesses);
+
+        // --- HERRAMIENTAS ADICIONALES ---
+        document.getElementById('btn-mirror').addEventListener('click', () => textContainer.classList.toggle('mirrored'));
+        document.getElementById('btn-contrast').addEventListener('click', () => document.body.classList.toggle('high-contrast'));
+        document.getElementById('btn-focus').addEventListener('click', () => document.getElementById('focus-zone').classList.toggle('hidden'));
+        document.getElementById('btn-reset').addEventListener('click', () => {
+            scrollContainer.scrollTo({ top: 0, behavior: 'smooth' });
+            if (voiceTracker) voiceTracker.currentWordIndex = 0;
+        });
+
+        const btnEnhanceAudio = document.getElementById('btn-enhance-audio');
+        btnEnhanceAudio.addEventListener('click', () => {
+            useAudioEnhancement = !useAudioEnhancement;
+            btnEnhanceAudio.innerText = useAudioEnhancement ? "🎙️ Audio: Studio" : "🎙️ Audio: Normal";
+            btnEnhanceAudio.classList.toggle('active-audio', useAudioEnhancement);
+        });
+
+        let currentFontSize = 64;
+        document.getElementById('btn-font-up').addEventListener('click', () => {
+            currentFontSize = Math.min(140, currentFontSize + 8);
+            textContainer.style.fontSize = `${currentFontSize}px`;
+        });
+        document.getElementById('btn-font-down').addEventListener('click', () => {
+            currentFontSize = Math.max(24, currentFontSize - 8);
+            textContainer.style.fontSize = `${currentFontSize}px`;
+        });
+    </script>
 </body>
 </html>
