@@ -433,9 +433,7 @@
                 videoElement.srcObject = stream;
                 videoElement.classList.add('active');
                 
-                videoElement.onloadedmetadata = async () => {
-                    try { await videoElement.play(); } catch(e) {}
-                    
+                videoElement.onloadedmetadata = () => {
                     recordingCanvas.width = videoElement.videoWidth;
                     recordingCanvas.height = videoElement.videoHeight;
                     isRecordingVideo = true;
@@ -486,12 +484,6 @@
                     };
 
                     mediaRecorder.start();
-                    
-                    // IMPORTANTE: Después de iniciar el video exitosamente, iniciamos la voz
-                    // Así evitamos la colisión por el acceso al micrófono
-                    if (!isListening) {
-                        startListeningEngine();
-                    }
                 };
             } catch (err) {
                 console.error("Error de cámara/micrófono:", err);
@@ -507,6 +499,8 @@
         }
 
         // --- EVENTOS PRINCIPALES DE BOTONES ---
+        // ¡Se inician de forma SÍNCRONA con el clic del usuario para que el micrófono no sea bloqueado!
+        
         document.getElementById('btn-mic').addEventListener('click', () => {
             if (startListeningEngine()) {
                 toolbar.classList.add('hidden');
@@ -515,15 +509,21 @@
             }
         });
 
-        // Modificados: Ya no arrancan el motor de voz de inmediato, solo configuran la UI e inician video
         document.getElementById('btn-record').addEventListener('click', () => {
             if (textContainer.innerText.trim() === '') {
                 alert("Primero pega o escribe un guion.");
                 return;
             }
+            
+            // 1. Iniciamos la VOZ SÍNCRONAMENTE en el mismo milisegundo del clic
+            if (!isListening) startListeningEngine();
+            
+            // 2. Preparamos la UI
             toolbar.classList.add('hidden');
             floatingStop.classList.add('visible');
             textContainer.contentEditable = "false";
+            
+            // 3. Encendemos el VIDEO
             startVideoRecording(false);
         });
 
@@ -532,9 +532,16 @@
                 alert("Primero pega o escribe un guion.");
                 return;
             }
+            
+            // 1. Iniciamos la VOZ SÍNCRONAMENTE en el mismo milisegundo del clic
+            if (!isListening) startListeningEngine();
+            
+            // 2. Preparamos la UI
             toolbar.classList.add('hidden');
             floatingStop.classList.add('visible');
             textContainer.contentEditable = "false";
+            
+            // 3. Encendemos el VIDEO
             startVideoRecording(true);
         });
 
