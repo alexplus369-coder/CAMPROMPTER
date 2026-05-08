@@ -116,6 +116,7 @@
             transition: opacity 0.3s;
         }
         .subtitle-hidden { opacity: 0; }
+        .subtitle-error { color: #ef4444 !important; border-color: #ef4444 !important; }
 
         /* --- Estilos de Cámara --- */
         #camera-feed {
@@ -242,25 +243,29 @@
     <div id="live-subtitle" class="subtitle-hidden">Esperando tu voz...</div>
 
     <script>
-        /** ALGORITMO VOICE TRACKER */
+        /** ALGORITMO VOICE TRACKER MEJORADO */
         class VoiceTracker {
             constructor(fullText) {
-                this.scriptWords = this.normalize(fullText).split(" ").filter(w => w.length > 0);
+                // Limpia y separa el guion original
+                this.scriptWords = this.normalize(fullText).split(/\s+/).filter(w => w.length > 0);
                 this.currentWordIndex = 0;
-                this.searchWindow = 25;
-                this.nGramSize = 3;
+                this.searchWindow = 40; // Ampliamos la ventana de búsqueda
+                this.nGramSize = 2;     // Buscamos bloques más pequeños para reaccionar más rápido
             }
 
             normalize(text) {
                 return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ");
             }
 
-            calculateProgress(partialSpoken) {
+            calculateProgress(totalSpoken) {
                 if (this.scriptWords.length === 0) return 0;
-                const spokenWords = this.normalize(partialSpoken).split(" ").filter(w => w.length > 0);
+                
+                const spokenWords = this.normalize(totalSpoken).split(/\s+/).filter(w => w.length > 0);
                 if (spokenWords.length < this.nGramSize) return this.getScrollPercentage();
 
+                // Siempre tomamos las últimas palabras dictadas en el historial global
                 const recentSpoken = spokenWords.slice(-this.nGramSize);
+                
                 const startIndex = Math.max(0, this.currentWordIndex - 5);
                 const endIndex = Math.min(this.scriptWords.length - this.nGramSize, this.currentWordIndex + this.searchWindow);
 
@@ -270,13 +275,15 @@
                 for (let i = startIndex; i <= endIndex; i++) {
                     const scriptSlice = this.scriptWords.slice(i, i + this.nGramSize);
                     const similarity = this.calculateSimilarity(recentSpoken, scriptSlice);
-                    if (similarity > highestSimilarity && similarity >= 0.66) {
+                    
+                    // Si al menos la mitad del bloque coincide, avanzamos (muy tolerante a fallos)
+                    if (similarity > highestSimilarity && similarity >= 0.5) {
                         highestSimilarity = similarity;
                         bestMatchIndex = i;
                     }
                 }
 
-                if (highestSimilarity >= 0.66) {
+                if (highestSimilarity >= 0.5) {
                     this.currentWordIndex = bestMatchIndex + Math.floor(this.nGramSize / 2);
                 }
                 return this.getScrollPercentage();
@@ -319,6 +326,7 @@
         let recordedChunks = [];
         let animationFrameId = null;
         let currentSubtitleText = "";
+        let finalTranscript = ""; // Mantiene la memoria global del dictado
 
         textContainer.addEventListener('focus', function() {
             if (this.classList.contains('placeholder')) {
@@ -340,22 +348,46 @@
             recognition.lang = 'es-ES';
 
             recognition.onresult = (event) => {
+                subtitle.classList.remove('subtitle-error');
                 let interimTranscript = '';
+                
+                // Procesar resultados
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    interimTranscript += event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript + ' ';
+                    } else {
+                        interimTranscript += event.results[i][0].transcript;
+                    }
                 }
-                currentSubtitleText = interimTranscript;
-                subtitle.innerText = interimTranscript;
-                subtitle.classList.remove('subtitle-hidden');
+                
+                const totalSpoken = finalTranscript + interimTranscript;
+                
+                // Mostrar en pantalla solo lo más reciente
+                currentSubtitleText = interimTranscript || finalTranscript.split(" ").slice(-6).join(" ");
+                
+                if (currentSubtitleText.trim() !== '') {
+                    subtitle.innerText = currentSubtitleText;
+                    subtitle.classList.remove('subtitle-hidden');
+                }
 
-                if (voiceTracker && interimTranscript.trim() !== '') {
-                    const progress = voiceTracker.calculateProgress(interimTranscript);
-                    const maxScroll = textContainer.scrollHeight - scrollContainer.clientHeight;
+                // Alimentar al VoiceTracker con la memoria completa
+                if (voiceTracker && totalSpoken.trim() !== '') {
+                    const progress = voiceTracker.calculateProgress(totalSpoken);
+                    const maxScroll = scrollContainer.scrollHeight - scrollContainer.clientHeight;
                     if (maxScroll > 0) {
                         scrollContainer.scrollTo({ top: maxScroll * progress, behavior: 'smooth' });
                     }
                 }
             };
+            
+            // Detector visual de errores (Si falla, lo sabrás al instante)
+            recognition.onerror = (event) => {
+                console.error("Error de micrófono:", event.error);
+                subtitle.innerText = "Error: " + event.error + " (Revisa permisos del navegador)";
+                subtitle.classList.remove('subtitle-hidden');
+                subtitle.classList.add('subtitle-error');
+            };
+
             recognition.onend = () => { if (isListening) recognition.start(); };
             return true;
         }
@@ -367,9 +399,18 @@
             }
             if (!recognition && !initNativeSpeech()) return false;
             
+            // Reiniciar tracker
+            finalTranscript = ""; 
             voiceTracker = new VoiceTracker(textContainer.innerText);
-            recognition.start();
+            
+            try {
+                recognition.start();
+            } catch (e) {
+                // Evita que colapse si ya estaba encendido en segundo plano
+            }
+            
             isListening = true;
+            subtitle.classList.remove('subtitle-error');
             subtitle.classList.remove('subtitle-hidden');
             subtitle.innerText = "Te escucho...";
             return true;
@@ -389,7 +430,10 @@
                 videoElement.srcObject = stream;
                 videoElement.classList.add('active');
                 
-                videoElement.onloadedmetadata = () => {
+                videoElement.onloadedmetadata = async () => {
+                    // Forzar Play: ¡CRÍTICO! Sin esto, Canvas no recibe el video en móviles
+                    try { await videoElement.play(); } catch(e) { console.error("Auto-play prevenido", e); }
+                    
                     recordingCanvas.width = videoElement.videoWidth;
                     recordingCanvas.height = videoElement.videoHeight;
                     isRecordingVideo = true;
@@ -398,7 +442,7 @@
                     
                     drawFrame(); // Iniciar renderizado visual
 
-                    // Configurar Audio (Normal o Studio/Enhanced)
+                    // Configurar Audio
                     let finalAudioStream = stream;
                     if (useAudioEnhancement) {
                         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -423,7 +467,7 @@
                         finalAudioStream = destination.stream;
                     }
 
-                    // Mezclar Video (Canvas) + Audio
+                    // Mezclar Video y Audio
                     const canvasStream = recordingCanvas.captureStream(30);
                     const tracks = [...canvasStream.getVideoTracks(), ...finalAudioStream.getAudioTracks()];
                     const combinedStream = new MediaStream(tracks);
@@ -432,13 +476,22 @@
                     mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
                     
                     mediaRecorder.onstop = () => {
+                        if (recordedChunks.length === 0) return; // Evita error si no se grabó nada
+                        
                         const blob = new Blob(recordedChunks, { type: 'video/webm' });
                         const url = URL.createObjectURL(blob);
+                        
+                        // Técnica robusta para forzar descarga en navegadores móviles (Android/iOS)
                         const a = document.createElement('a');
+                        a.style.display = 'none';
                         a.href = url;
                         a.download = isIARecording ? 'Teleprompter_IA_Studio.webm' : 'Teleprompter_Video.webm';
+                        document.body.appendChild(a);
                         a.click();
-                        URL.revokeObjectURL(url);
+                        setTimeout(() => {
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                        }, 100);
                     };
 
                     mediaRecorder.start();
@@ -453,6 +506,9 @@
                 };
             } catch (err) {
                 console.error("Error de cámara/micrófono:", err);
+                subtitle.innerText = "Error: Cámara o Micrófono bloqueados.";
+                subtitle.classList.remove('subtitle-hidden');
+                subtitle.classList.add('subtitle-error');
                 alert("Asegúrate de dar permisos de Cámara y Micrófono al navegador.");
             }
         }
