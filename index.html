@@ -290,7 +290,7 @@
         <button id="btn-bg-select" title="Cambiar Fondo" style="display:none; background-color: #6366f1;">📁 Fondo</button>
         <input type="file" id="file-bg" accept="image/*,video/*" style="display:none;">
 
-        <!-- NUEVO BOTÓN: PLANTILLA / OVERLAY -->
+        <!-- BOTÓN: PLANTILLA / OVERLAY -->
         <button id="btn-overlay-select" title="Añadir Plantilla Transparente" style="background-color: #ec4899;">🖼️ Plantilla</button>
         <input type="file" id="file-overlay" accept="image/png" style="display:none;">
 
@@ -419,7 +419,7 @@
         let isBgRemovalActive = false;
         let isModelLoading = false;
         let bgMedia = null;
-        let overlayMedia = null; // NUEVO: Variable para la plantilla
+        let overlayMedia = null;
 
         function showMessage(msg, type = '') {
             subtitle.innerText = msg;
@@ -437,7 +437,7 @@
             }
         });
 
-        // --- ENLACE DE BOTONES PRINCIPALES (Garantiza que siempre funcionen) ---
+        // --- ENLACE DE BOTONES PRINCIPALES ---
         document.getElementById('btn-mic').addEventListener('click', () => {
             if (startListeningEngine()) {
                 toolbar.classList.add('hidden');
@@ -573,17 +573,15 @@
         document.getElementById('btn-scroll-slower').addEventListener('click', () => { scrollSpeed = Math.max(0.5, scrollSpeed - 0.5); });
         document.getElementById('btn-scroll-faster').addEventListener('click', () => { scrollSpeed = Math.min(5.0, scrollSpeed + 0.5); });
 
-        // --- SISTEMA DE PLANTILLA (OVERLAY) NUEVO ---
+        // --- SISTEMA DE PLANTILLA (OVERLAY) ---
         const btnOverlay = document.getElementById('btn-overlay-select');
         btnOverlay.addEventListener('click', () => {
             if (overlayMedia) {
-                // Si ya hay plantilla, al hacer clic la quitamos
                 overlayMedia = null;
                 btnOverlay.innerText = "🖼️ Plantilla";
                 btnOverlay.classList.remove('active-feature');
-                document.getElementById('file-overlay').value = ""; // Resetear input
+                document.getElementById('file-overlay').value = ""; 
             } else {
-                // Si no hay plantilla, abrimos el selector de archivos
                 document.getElementById('file-overlay').click();
             }
         });
@@ -601,8 +599,7 @@
             overlayMedia.src = url;
         });
 
-
-        // --- FONDO VIRTUAL IA (IMPORTACIÓN DINÁMICA SEGURA) ---
+        // --- FONDO VIRTUAL IA ---
         async function loadSegmentationModel() {
             if (segmenter || isModelLoading) return;
             
@@ -610,7 +607,6 @@
             showMessage("Descargando IA de Fondo (MediaPipe)... ⏳", "info");
             
             try {
-                // Importación Dinámica: Solo se ejecuta si se llama a esta función.
                 const visionModule = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs');
                 const FilesetResolver = visionModule.FilesetResolver;
                 const ImageSegmenter = visionModule.ImageSegmenter;
@@ -620,7 +616,7 @@
                 segmenter = await ImageSegmenter.createFromOptions(vision, {
                     baseOptions: {
                         modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite',
-                        delegate: "GPU" // Aceleración por hardware para celulares
+                        delegate: "GPU"
                     },
                     runningMode: "VIDEO",
                     outputConfidenceMasks: true,
@@ -841,12 +837,12 @@
             };
         }
 
-        // --- RENDERIZADO VISUAL CON CAPAS ---
+        // --- RENDERIZADO VISUAL SEGURO ---
         function drawFrame() {
             if (!isRecordingVideo) return;
             
-            const vw = videoElement.videoWidth;
-            const vh = videoElement.videoHeight;
+            const vw = videoElement.videoWidth || 1; // Prevenir división por cero
+            const vh = videoElement.videoHeight || 1;
             let sourceImage = videoElement;
 
             // 1. GENERAR CAPA TRANSPARENTE (IA)
@@ -884,40 +880,47 @@
             }
 
             // LIMPIEZA DE LIENZO PRINCIPAL
-            ctx.save();
             ctx.clearRect(0, 0, outputWidth, outputHeight);
 
             // CAPA 1 (INFERIOR): FONDO
             if (isBgRemovalActive) {
                 if (bgMedia) {
-                    const bgW = bgMedia.videoWidth || bgMedia.width || outputWidth;
-                    const bgH = bgMedia.videoHeight || bgMedia.height || outputHeight;
-                    const scaleBg = Math.max(outputWidth / bgW, outputHeight / bgH);
-                    const drawW = bgW * scaleBg;
-                    const drawH = bgH * scaleBg;
-                    ctx.drawImage(bgMedia, (outputWidth - drawW)/2, (outputHeight - drawH)/2, drawW, drawH);
+                    try {
+                        const bgW = bgMedia.videoWidth || bgMedia.width || outputWidth;
+                        const bgH = bgMedia.videoHeight || bgMedia.height || outputHeight;
+                        const scaleBg = Math.max(outputWidth / bgW, outputHeight / bgH);
+                        const drawW = bgW * scaleBg;
+                        const drawH = bgH * scaleBg;
+                        ctx.drawImage(bgMedia, (outputWidth - drawW)/2, (outputHeight - drawH)/2, drawW, drawH);
+                    } catch(e) {} // Protege contra videos no listos
                 } else {
                     ctx.fillStyle = '#00ff00';
                     ctx.fillRect(0, 0, outputWidth, outputHeight);
                 }
             }
 
-            // CAPA 2 (MEDIO): CÁMARA O PERSONA RECORTADA
-            const scale = Math.max(outputWidth / vw, outputHeight / vh);
-            const scaledW = vw * scale;
-            const scaledH = vh * scale;
-            const offsetX = (outputWidth - scaledW) / 2;
-            const offsetY = (outputHeight - scaledH) / 2;
+            // CAPA 2 (MEDIO): CÁMARA O PERSONA RECORTADA (CAJA FUERTE DE COORDENADAS)
+            try {
+                const scale = Math.max(outputWidth / vw, outputHeight / vh);
+                const scaledW = vw * scale;
+                const scaledH = vh * scale;
+                const offsetX = (outputWidth - scaledW) / 2;
+                const offsetY = (outputHeight - scaledH) / 2;
 
-            ctx.translate(outputWidth, 0);
-            ctx.scale(-1, 1); // Efecto Espejo
-            ctx.drawImage(sourceImage, -offsetX, offsetY, scaledW, scaledH);
-            ctx.restore();
+                // Solo guardamos y alteramos las coordenadas para el Efecto Espejo de esta capa
+                ctx.save(); 
+                ctx.translate(outputWidth, 0);
+                ctx.scale(-1, 1); 
+                ctx.drawImage(sourceImage, -offsetX, offsetY, scaledW, scaledH);
+                ctx.restore(); // Reseteamos inmediatamente para no afectar a la plantilla
+            } catch(e) {}
 
             // CAPA 3 (SUPERIOR): PLANTILLA / OVERLAY
             if (overlayMedia) {
-                // Dibujamos la plantilla estirada a las dimensiones exactas del formato de salida
-                ctx.drawImage(overlayMedia, 0, 0, outputWidth, outputHeight);
+                try {
+                    // Estiramos la plantilla a los bordes exactos del formato elegido (9:16, 1:1, etc.)
+                    ctx.drawImage(overlayMedia, 0, 0, outputWidth, outputHeight);
+                } catch(e) {}
             }
 
             // CAPA 4 (EXTRA SUPERIOR): MARCA DE CONTACTO VISUAL IA
