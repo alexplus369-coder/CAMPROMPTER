@@ -243,29 +243,26 @@
     <div id="live-subtitle" class="subtitle-hidden">Esperando tu voz...</div>
 
     <script>
-        /** ALGORITMO VOICE TRACKER MEJORADO */
+        /** ALGORITMO VOICE TRACKER ORIGINAL (El que funcionó perfectamente) */
         class VoiceTracker {
             constructor(fullText) {
-                // Limpia y separa el guion original
-                this.scriptWords = this.normalize(fullText).split(/\s+/).filter(w => w.length > 0);
+                this.scriptWords = this.normalize(fullText).split(" ").filter(w => w.length > 0);
                 this.currentWordIndex = 0;
-                this.searchWindow = 40; // Ampliamos la ventana de búsqueda
-                this.nGramSize = 2;     // Buscamos bloques más pequeños para reaccionar más rápido
+                this.searchWindow = 40; 
+                this.nGramSize = 3; 
             }
 
             normalize(text) {
                 return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ");
             }
 
-            calculateProgress(totalSpoken) {
+            calculateProgress(partialSpoken) {
                 if (this.scriptWords.length === 0) return 0;
                 
-                const spokenWords = this.normalize(totalSpoken).split(/\s+/).filter(w => w.length > 0);
+                const spokenWords = this.normalize(partialSpoken).split(" ").filter(w => w.length > 0);
                 if (spokenWords.length < this.nGramSize) return this.getScrollPercentage();
 
-                // Siempre tomamos las últimas palabras dictadas en el historial global
                 const recentSpoken = spokenWords.slice(-this.nGramSize);
-                
                 const startIndex = Math.max(0, this.currentWordIndex - 5);
                 const endIndex = Math.min(this.scriptWords.length - this.nGramSize, this.currentWordIndex + this.searchWindow);
 
@@ -276,14 +273,13 @@
                     const scriptSlice = this.scriptWords.slice(i, i + this.nGramSize);
                     const similarity = this.calculateSimilarity(recentSpoken, scriptSlice);
                     
-                    // Si al menos la mitad del bloque coincide, avanzamos (muy tolerante a fallos)
-                    if (similarity > highestSimilarity && similarity >= 0.5) {
+                    if (similarity > highestSimilarity && similarity >= 0.66) {
                         highestSimilarity = similarity;
                         bestMatchIndex = i;
                     }
                 }
 
-                if (highestSimilarity >= 0.5) {
+                if (highestSimilarity >= 0.66) {
                     this.currentWordIndex = bestMatchIndex + Math.floor(this.nGramSize / 2);
                 }
                 return this.getScrollPercentage();
@@ -321,13 +317,12 @@
         let isIARecording = false;
         let useAudioEnhancement = false;
         
-        let recognition = null;
         let mediaRecorder = null;
         let recordedChunks = [];
         let animationFrameId = null;
         let currentSubtitleText = "";
-        let finalTranscript = ""; // Mantiene la memoria global del dictado
 
+        // Limpiar placeholder
         textContainer.addEventListener('focus', function() {
             if (this.classList.contains('placeholder')) {
                 this.innerHTML = '';
@@ -335,61 +330,51 @@
             }
         });
 
-        // --- SISTEMA DE RECONOCIMIENTO DE VOZ ---
-        function initNativeSpeech() {
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!SpeechRecognition) {
-                alert("Tu navegador no soporta el reconocimiento de voz nativo. Usa Chrome o Edge.");
-                return false;
-            }
+        // --- SISTEMA DE RECONOCIMIENTO DE VOZ ORIGINAL ---
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition = null;
+
+        if (SpeechRecognition) {
             recognition = new SpeechRecognition();
             recognition.continuous = true;
             recognition.interimResults = true;
             recognition.lang = 'es-ES';
 
             recognition.onresult = (event) => {
-                subtitle.classList.remove('subtitle-error');
                 let interimTranscript = '';
-                
-                // Procesar resultados
+                // Acumulación simple que funcionaba perfecto
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    if (event.results[i].isFinal) {
-                        finalTranscript += event.results[i][0].transcript + ' ';
-                    } else {
-                        interimTranscript += event.results[i][0].transcript;
-                    }
+                    interimTranscript += event.results[i][0].transcript;
                 }
                 
-                const totalSpoken = finalTranscript + interimTranscript;
-                
-                // Mostrar en pantalla solo lo más reciente
-                currentSubtitleText = interimTranscript || finalTranscript.split(" ").slice(-6).join(" ");
-                
-                if (currentSubtitleText.trim() !== '') {
-                    subtitle.innerText = currentSubtitleText;
-                    subtitle.classList.remove('subtitle-hidden');
-                }
+                currentSubtitleText = interimTranscript;
+                subtitle.innerText = currentSubtitleText;
+                subtitle.classList.remove('subtitle-hidden');
+                subtitle.classList.remove('subtitle-error');
 
-                // Alimentar al VoiceTracker con la memoria completa
-                if (voiceTracker && totalSpoken.trim() !== '') {
-                    const progress = voiceTracker.calculateProgress(totalSpoken);
+                if (voiceTracker && interimTranscript.trim() !== '') {
+                    const progress = voiceTracker.calculateProgress(interimTranscript);
                     const maxScroll = scrollContainer.scrollHeight - scrollContainer.clientHeight;
                     if (maxScroll > 0) {
                         scrollContainer.scrollTo({ top: maxScroll * progress, behavior: 'smooth' });
                     }
                 }
             };
-            
-            // Detector visual de errores (Si falla, lo sabrás al instante)
+
             recognition.onerror = (event) => {
-                console.error("Error de micrófono:", event.error);
-                subtitle.innerText = "Error: " + event.error + " (Revisa permisos del navegador)";
-                subtitle.classList.remove('subtitle-hidden');
-                subtitle.classList.add('subtitle-error');
+                console.error("Error de voz:", event.error);
+                if (event.error !== 'no-speech') {
+                    subtitle.innerText = "Error: " + event.error;
+                    subtitle.classList.remove('subtitle-hidden');
+                    subtitle.classList.add('subtitle-error');
+                }
             };
 
-            recognition.onend = () => { if (isListening) recognition.start(); };
-            return true;
+            recognition.onend = () => {
+                if (isListening) {
+                    try { recognition.start(); } catch(e) {}
+                }
+            };
         }
 
         function startListeningEngine() {
@@ -397,16 +382,17 @@
                 alert("Primero pega o escribe un guion.");
                 return false;
             }
-            if (!recognition && !initNativeSpeech()) return false;
+            if (!recognition) {
+                alert("Tu navegador no soporta reconocimiento de voz nativo.");
+                return false;
+            }
             
-            // Reiniciar tracker
-            finalTranscript = ""; 
             voiceTracker = new VoiceTracker(textContainer.innerText);
             
             try {
                 recognition.start();
             } catch (e) {
-                // Evita que colapse si ya estaba encendido en segundo plano
+                // Ignorar si ya está corriendo
             }
             
             isListening = true;
@@ -431,8 +417,7 @@
                 videoElement.classList.add('active');
                 
                 videoElement.onloadedmetadata = async () => {
-                    // Forzar Play: ¡CRÍTICO! Sin esto, Canvas no recibe el video en móviles
-                    try { await videoElement.play(); } catch(e) { console.error("Auto-play prevenido", e); }
+                    try { await videoElement.play(); } catch(e) {}
                     
                     recordingCanvas.width = videoElement.videoWidth;
                     recordingCanvas.height = videoElement.videoHeight;
@@ -440,26 +425,18 @@
                     isIARecording = useIA;
                     recordedChunks = [];
                     
-                    drawFrame(); // Iniciar renderizado visual
+                    drawFrame(); 
 
-                    // Configurar Audio
                     let finalAudioStream = stream;
                     if (useAudioEnhancement) {
                         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                         const source = audioCtx.createMediaStreamSource(stream);
                         const destination = audioCtx.createMediaStreamDestination();
 
-                        const highpass = audioCtx.createBiquadFilter();
-                        highpass.type = 'highpass'; highpass.frequency.value = 85;
-
-                        const eqLowMid = audioCtx.createBiquadFilter();
-                        eqLowMid.type = 'peaking'; eqLowMid.frequency.value = 400; eqLowMid.Q.value = 1; eqLowMid.gain.value = -4;
-
-                        const eqPresence = audioCtx.createBiquadFilter();
-                        eqPresence.type = 'peaking'; eqPresence.frequency.value = 4000; eqPresence.Q.value = 1; eqPresence.gain.value = 5;
-
-                        const compressor = audioCtx.createDynamicsCompressor();
-                        compressor.threshold.value = -24; compressor.ratio.value = 4;
+                        const highpass = audioCtx.createBiquadFilter(); highpass.type = 'highpass'; highpass.frequency.value = 85;
+                        const eqLowMid = audioCtx.createBiquadFilter(); eqLowMid.type = 'peaking'; eqLowMid.frequency.value = 400; eqLowMid.Q.value = 1; eqLowMid.gain.value = -4;
+                        const eqPresence = audioCtx.createBiquadFilter(); eqPresence.type = 'peaking'; eqPresence.frequency.value = 4000; eqPresence.Q.value = 1; eqPresence.gain.value = 5;
+                        const compressor = audioCtx.createDynamicsCompressor(); compressor.threshold.value = -24; compressor.ratio.value = 4;
 
                         source.connect(highpass); highpass.connect(eqLowMid);
                         eqLowMid.connect(eqPresence); eqPresence.connect(compressor);
@@ -467,7 +444,6 @@
                         finalAudioStream = destination.stream;
                     }
 
-                    // Mezclar Video y Audio
                     const canvasStream = recordingCanvas.captureStream(30);
                     const tracks = [...canvasStream.getVideoTracks(), ...finalAudioStream.getAudioTracks()];
                     const combinedStream = new MediaStream(tracks);
@@ -476,12 +452,10 @@
                     mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
                     
                     mediaRecorder.onstop = () => {
-                        if (recordedChunks.length === 0) return; // Evita error si no se grabó nada
-                        
+                        if (recordedChunks.length === 0) return;
                         const blob = new Blob(recordedChunks, { type: 'video/webm' });
                         const url = URL.createObjectURL(blob);
                         
-                        // Técnica robusta para forzar descarga en navegadores móviles (Android/iOS)
                         const a = document.createElement('a');
                         a.style.display = 'none';
                         a.href = url;
@@ -496,10 +470,8 @@
 
                     mediaRecorder.start();
                     
-                    // Si logramos iniciar el video, arrancamos el motor de voz (teleprompter)
                     if (!isListening) startListeningEngine();
                     
-                    // Ocultar barra de herramientas, mostrar botón de parada
                     toolbar.classList.add('hidden');
                     floatingStop.classList.add('visible');
                     textContainer.contentEditable = "false";
@@ -509,12 +481,10 @@
                 subtitle.innerText = "Error: Cámara o Micrófono bloqueados.";
                 subtitle.classList.remove('subtitle-hidden');
                 subtitle.classList.add('subtitle-error');
-                alert("Asegúrate de dar permisos de Cámara y Micrófono al navegador.");
             }
         }
 
         function stopAllProcesses() {
-            // 1. Detener Video
             if (isRecordingVideo) {
                 isRecordingVideo = false;
                 mediaRecorder.stop();
@@ -524,12 +494,10 @@
                 videoElement.classList.remove('active');
             }
             
-            // 2. Detener Voz
             if (isListening) {
                 stopListeningEngine();
             }
 
-            // 3. Restaurar Interfaz
             toolbar.classList.remove('hidden');
             floatingStop.classList.remove('visible');
             textContainer.contentEditable = "true";
