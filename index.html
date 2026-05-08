@@ -332,10 +332,8 @@
         </div>
     </div>
 
-    <!-- SCRIPT TIPO MODULE: Carga la IA de forma correcta y segura -->
+    <!-- SCRIPT TIPO MODULE: Importación Dinámica Asegurada -->
     <script type="module">
-        import { SelfieSegmentation, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm';
-
         /** ALGORITMO VOICE TRACKER */
         class VoiceTracker {
             constructor(fullText) {
@@ -433,6 +431,42 @@
                 this.classList.remove('placeholder');
             }
         });
+
+        // --- ENLACE DE BOTONES PRINCIPALES (Garantiza que siempre funcionen) ---
+        document.getElementById('btn-mic').addEventListener('click', () => {
+            if (startListeningEngine()) {
+                toolbar.classList.add('hidden');
+                floatingStop.classList.add('visible');
+                textContainer.contentEditable = "false";
+            }
+        });
+        document.getElementById('btn-record').addEventListener('click', () => {
+            if (textContainer.innerText.trim() === '') { alert("Pega tu guion."); return; }
+            startVideoRecording(false);
+        });
+        document.getElementById('btn-record-ia').addEventListener('click', () => {
+            if (textContainer.innerText.trim() === '') { alert("Pega tu guion."); return; }
+            startVideoRecording(true);
+        });
+
+        document.getElementById('floating-stop').addEventListener('click', stopAllProcesses);
+
+        // Herramientas Extras
+        document.getElementById('btn-mirror').addEventListener('click', () => textContainer.classList.toggle('mirrored'));
+        document.getElementById('btn-contrast').addEventListener('click', () => document.body.classList.toggle('high-contrast'));
+        document.getElementById('btn-focus').addEventListener('click', () => document.getElementById('focus-zone').classList.toggle('hidden'));
+        document.getElementById('btn-reset').addEventListener('click', () => { scrollContainer.scrollTo({ top: 0, behavior: 'smooth' }); if (voiceTracker) voiceTracker.currentWordIndex = 0; });
+        
+        const btnEnhanceAudio = document.getElementById('btn-enhance-audio');
+        btnEnhanceAudio.addEventListener('click', () => {
+            useAudioEnhancement = !useAudioEnhancement;
+            btnEnhanceAudio.innerText = useAudioEnhancement ? "🎙️ Audio: Studio" : "🎙️ Audio: Normal";
+            btnEnhanceAudio.classList.toggle('active-audio', useAudioEnhancement);
+        });
+        
+        let currentFontSize = 64;
+        document.getElementById('btn-font-up').addEventListener('click', () => { currentFontSize = Math.min(140, currentFontSize + 8); textContainer.style.fontSize = `${currentFontSize}px`; });
+        document.getElementById('btn-font-down').addEventListener('click', () => { currentFontSize = Math.max(24, currentFontSize - 8); textContainer.style.fontSize = `${currentFontSize}px`; });
 
         // --- SISTEMA DE RECONOCIMIENTO DE VOZ NATIVO ---
         function initNativeSpeechIfNeeded() {
@@ -534,7 +568,7 @@
         document.getElementById('btn-scroll-slower').addEventListener('click', () => { scrollSpeed = Math.max(0.5, scrollSpeed - 0.5); });
         document.getElementById('btn-scroll-faster').addEventListener('click', () => { scrollSpeed = Math.min(5.0, scrollSpeed + 0.5); });
 
-        // --- FONDO VIRTUAL IA ---
+        // --- FONDO VIRTUAL IA (IMPORTACIÓN DINÁMICA SEGURA) ---
         async function loadSegmentationModel() {
             if (segmenter || isModelLoading) return;
             
@@ -542,11 +576,18 @@
             showMessage("Descargando IA de Fondo (MediaPipe)... ⏳", "info");
             
             try {
-                // Al cargar en Module, no comprobamos si existe en window, usamos la clase importada directamente.
-                const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm');
-                segmenter = await SelfieSegmentation.createFromOptions(vision, {
+                // Importación Dinámica: Solo se ejecuta si se llama a esta función.
+                // Protege el resto de la aplicación de posibles fallos de red o de ES Modules.
+                const visionModule = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs');
+                const FilesetResolver = visionModule.FilesetResolver;
+                const ImageSegmenter = visionModule.ImageSegmenter;
+
+                const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm');
+                
+                segmenter = await ImageSegmenter.createFromOptions(vision, {
                     baseOptions: {
-                        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/selfie_segmenter/selfie_segmentation/float16/latest/selfie_segmenter.tflite',
+                        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite',
+                        delegate: "GPU" // Aceleración por hardware para celulares
                     },
                     runningMode: "VIDEO",
                     outputConfidenceMasks: true,
@@ -858,23 +899,6 @@
             animationFrameId = requestAnimationFrame(drawFrame);
         }
 
-        // --- EVENTOS DE BOTONES ---
-        document.getElementById('btn-mic').addEventListener('click', () => {
-            if (startListeningEngine()) {
-                toolbar.classList.add('hidden');
-                floatingStop.classList.add('visible');
-                textContainer.contentEditable = "false";
-            }
-        });
-        document.getElementById('btn-record').addEventListener('click', () => {
-            if (textContainer.innerText.trim() === '') { alert("Pega tu guion."); return; }
-            startVideoRecording(false);
-        });
-        document.getElementById('btn-record-ia').addEventListener('click', () => {
-            if (textContainer.innerText.trim() === '') { alert("Pega tu guion."); return; }
-            startVideoRecording(true);
-        });
-
         function stopAllProcesses() {
             if (isRecordingVideo) {
                 isRecordingVideo = false;
@@ -895,25 +919,6 @@
             floatingStop.classList.remove('visible');
             textContainer.contentEditable = "true";
         }
-        
-        document.getElementById('floating-stop').addEventListener('click', stopAllProcesses);
-
-        // --- HERRAMIENTAS EXTRAS ---
-        document.getElementById('btn-mirror').addEventListener('click', () => textContainer.classList.toggle('mirrored'));
-        document.getElementById('btn-contrast').addEventListener('click', () => document.body.classList.toggle('high-contrast'));
-        document.getElementById('btn-focus').addEventListener('click', () => document.getElementById('focus-zone').classList.toggle('hidden'));
-        document.getElementById('btn-reset').addEventListener('click', () => { scrollContainer.scrollTo({ top: 0, behavior: 'smooth' }); if (voiceTracker) voiceTracker.currentWordIndex = 0; });
-        
-        const btnEnhanceAudio = document.getElementById('btn-enhance-audio');
-        btnEnhanceAudio.addEventListener('click', () => {
-            useAudioEnhancement = !useAudioEnhancement;
-            btnEnhanceAudio.innerText = useAudioEnhancement ? "🎙️ Audio: Studio" : "🎙️ Audio: Normal";
-            btnEnhanceAudio.classList.toggle('active-audio', useAudioEnhancement);
-        });
-        
-        let currentFontSize = 64;
-        document.getElementById('btn-font-up').addEventListener('click', () => { currentFontSize = Math.min(140, currentFontSize + 8); textContainer.style.fontSize = `${currentFontSize}px`; });
-        document.getElementById('btn-font-down').addEventListener('click', () => { currentFontSize = Math.max(24, currentFontSize - 8); textContainer.style.fontSize = `${currentFontSize}px`; });
     </script>
 </body>
 </html>
