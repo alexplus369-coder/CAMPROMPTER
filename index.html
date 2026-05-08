@@ -243,23 +243,23 @@
     <div id="live-subtitle" class="subtitle-hidden">Esperando tu voz...</div>
 
     <script>
-        /** ALGORITMO VOICE TRACKER ORIGINAL (El que funcionó perfectamente) */
+        /** ALGORITMO VOICE TRACKER - RÁPIDO Y PRECISO */
         class VoiceTracker {
             constructor(fullText) {
-                this.scriptWords = this.normalize(fullText).split(" ").filter(w => w.length > 0);
+                this.scriptWords = this.normalize(fullText).split(/\s+/).filter(w => w.length > 0);
                 this.currentWordIndex = 0;
-                this.searchWindow = 25; 
-                this.nGramSize = 3; 
+                this.searchWindow = 35; 
+                this.nGramSize = 2; // Grupos más pequeños para reaccionar más rápido
             }
 
             normalize(text) {
                 return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ");
             }
 
-            calculateProgress(partialSpoken) {
+            calculateProgress(totalSpoken) {
                 if (this.scriptWords.length === 0) return 0;
                 
-                const spokenWords = this.normalize(partialSpoken).split(" ").filter(w => w.length > 0);
+                const spokenWords = this.normalize(totalSpoken).split(/\s+/).filter(w => w.length > 0);
                 if (spokenWords.length < this.nGramSize) return this.getScrollPercentage();
 
                 const recentSpoken = spokenWords.slice(-this.nGramSize);
@@ -273,13 +273,13 @@
                     const scriptSlice = this.scriptWords.slice(i, i + this.nGramSize);
                     const similarity = this.calculateSimilarity(recentSpoken, scriptSlice);
                     
-                    if (similarity > highestSimilarity && similarity >= 0.66) {
+                    if (similarity > highestSimilarity && similarity >= 0.5) { // Tolerante
                         highestSimilarity = similarity;
                         bestMatchIndex = i;
                     }
                 }
 
-                if (highestSimilarity >= 0.66) {
+                if (highestSimilarity >= 0.5) {
                     this.currentWordIndex = bestMatchIndex + Math.floor(this.nGramSize / 2);
                 }
                 return this.getScrollPercentage();
@@ -310,17 +310,19 @@
         const recordingCanvas = document.getElementById('recording-canvas');
         const ctx = recordingCanvas.getContext('2d');
 
-        // Variables de Estado Globals
+        // Variables de Estado
         let voiceTracker = null;
         let isListening = false;
         let isRecordingVideo = false;
         let isIARecording = false;
         let useAudioEnhancement = false;
         
+        let recognition = null;
         let mediaRecorder = null;
         let recordedChunks = [];
         let animationFrameId = null;
         let currentSubtitleText = "";
+        let finalTranscript = "";
 
         // Limpiar placeholder
         textContainer.addEventListener('focus', function() {
@@ -330,38 +332,45 @@
             }
         });
 
-        // --- SISTEMA DE RECONOCIMIENTO DE VOZ ORIGINAL RESTAURADO ---
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        let recognition = null;
+        // --- SISTEMA DE RECONOCIMIENTO DE VOZ (Carga perezosa) ---
+        function initNativeSpeechIfNeeded() {
+            if (recognition) return true;
 
-        if (SpeechRecognition) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                alert("Tu navegador no soporta reconocimiento de voz nativo. Usa Chrome.");
+                return false;
+            }
+
             recognition = new SpeechRecognition();
             recognition.continuous = true;
             recognition.interimResults = true;
             recognition.lang = 'es-ES';
 
             recognition.onresult = (event) => {
-                let transcript = '';
+                let interimTranscript = '';
                 
-                // Procesamiento original intacto: acumula el resultado más reciente
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    transcript += event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript + ' ';
+                    } else {
+                        interimTranscript += event.results[i][0].transcript;
+                    }
                 }
                 
-                currentSubtitleText = transcript;
+                const totalSpoken = finalTranscript + interimTranscript;
+                currentSubtitleText = interimTranscript || finalTranscript.split(" ").slice(-8).join(" ");
                 
                 if (currentSubtitleText.trim() !== '') {
                     subtitle.innerText = currentSubtitleText;
-                    subtitle.classList.remove('subtitle-hidden');
-                    subtitle.classList.remove('subtitle-error');
+                    subtitle.classList.remove('subtitle-hidden', 'subtitle-error');
     
-                    if (voiceTracker) {
-                        const progress = voiceTracker.calculateProgress(currentSubtitleText);
-                        const maxScroll = textContainer.scrollHeight - scrollContainer.clientHeight;
+                    if (voiceTracker && totalSpoken.trim() !== '') {
+                        const progress = voiceTracker.calculateProgress(totalSpoken);
+                        const maxScroll = scrollContainer.scrollHeight - scrollContainer.clientHeight;
                         
                         if (maxScroll > 0) {
-                            const targetY = maxScroll * progress;
-                            scrollContainer.scrollTo({ top: targetY, behavior: 'smooth' });
+                            scrollContainer.scrollTo({ top: maxScroll * progress, behavior: 'smooth' });
                         }
                     }
                 }
@@ -370,7 +379,7 @@
             recognition.onerror = (event) => {
                 console.error("Error de voz:", event.error);
                 if (event.error !== 'no-speech') {
-                    subtitle.innerText = "Error: " + event.error;
+                    subtitle.innerText = "Error micrófono: " + event.error;
                     subtitle.classList.remove('subtitle-hidden');
                     subtitle.classList.add('subtitle-error');
                 }
@@ -378,9 +387,13 @@
 
             recognition.onend = () => {
                 if (isListening) {
-                    try { recognition.start(); } catch(e) {}
+                    setTimeout(() => {
+                        try { recognition.start(); } catch(e) {}
+                    }, 300); // Previene bloqueos por reinicios demasiado rápidos
                 }
             };
+
+            return true;
         }
 
         function startListeningEngine() {
@@ -388,22 +401,20 @@
                 alert("Primero pega o escribe un guion.");
                 return false;
             }
-            if (!recognition) {
-                alert("Tu navegador no soporta reconocimiento de voz nativo.");
-                return false;
-            }
             
+            if (!initNativeSpeechIfNeeded()) return false;
+            
+            finalTranscript = "";
             voiceTracker = new VoiceTracker(textContainer.innerText);
             
             try {
                 recognition.start();
             } catch (e) {
-                // Ignorar si ya está corriendo
+                console.log("El micrófono ya estaba atento");
             }
             
             isListening = true;
-            subtitle.classList.remove('subtitle-error');
-            subtitle.classList.remove('subtitle-hidden');
+            subtitle.classList.remove('subtitle-error', 'subtitle-hidden');
             subtitle.innerText = "Te escucho...";
             return true;
         }
@@ -414,6 +425,35 @@
             subtitle.classList.add('subtitle-hidden');
             currentSubtitleText = "";
         }
+
+        // --- EVENTOS PRINCIPALES DE BOTONES ---
+        // Al tocar un botón, encendemos el micrófono DIRECTAMENTE para evitar el bloqueo del navegador
+        
+        document.getElementById('btn-mic').addEventListener('click', () => {
+            if (startListeningEngine()) {
+                toolbar.classList.add('hidden');
+                floatingStop.classList.add('visible');
+                textContainer.contentEditable = "false";
+            }
+        });
+
+        document.getElementById('btn-record').addEventListener('click', () => {
+            if (startListeningEngine()) {
+                toolbar.classList.add('hidden');
+                floatingStop.classList.add('visible');
+                textContainer.contentEditable = "false";
+                startVideoRecording(false);
+            }
+        });
+
+        document.getElementById('btn-record-ia').addEventListener('click', () => {
+            if (startListeningEngine()) {
+                toolbar.classList.add('hidden');
+                floatingStop.classList.add('visible');
+                textContainer.contentEditable = "false";
+                startVideoRecording(true);
+            }
+        });
 
         // --- SISTEMA DE GRABACIÓN DE VIDEO ---
         async function startVideoRecording(useIA) {
@@ -475,25 +515,22 @@
                     };
 
                     mediaRecorder.start();
-                    
-                    if (!isListening) startListeningEngine();
-                    
-                    toolbar.classList.add('hidden');
-                    floatingStop.classList.add('visible');
-                    textContainer.contentEditable = "false";
                 };
             } catch (err) {
                 console.error("Error de cámara/micrófono:", err);
-                subtitle.innerText = "Error: Cámara o Micrófono bloqueados.";
+                subtitle.innerText = "Error: Cámara bloqueada.";
                 subtitle.classList.remove('subtitle-hidden');
                 subtitle.classList.add('subtitle-error');
             }
         }
 
+        // --- DETENER TODO (BOTÓN FLOTANTE) ---
         function stopAllProcesses() {
             if (isRecordingVideo) {
                 isRecordingVideo = false;
-                mediaRecorder.stop();
+                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                    mediaRecorder.stop();
+                }
                 cancelAnimationFrame(animationFrameId);
                 const stream = videoElement.srcObject;
                 if (stream) stream.getTracks().forEach(track => track.stop());
@@ -508,6 +545,7 @@
             floatingStop.classList.remove('visible');
             textContainer.contentEditable = "true";
         }
+        floatingStop.addEventListener('click', stopAllProcesses);
 
         // --- RENDERIZADO VISUAL EN CANVAS ---
         function drawFrame() {
@@ -549,20 +587,6 @@
             }
             animationFrameId = requestAnimationFrame(drawFrame);
         }
-
-        // --- EVENTOS DE BOTONES ---
-        document.getElementById('btn-record').addEventListener('click', () => startVideoRecording(false));
-        document.getElementById('btn-record-ia').addEventListener('click', () => startVideoRecording(true));
-        
-        document.getElementById('btn-mic').addEventListener('click', () => {
-            if (startListeningEngine()) {
-                toolbar.classList.add('hidden');
-                floatingStop.classList.add('visible');
-                textContainer.contentEditable = "false";
-            }
-        });
-
-        floatingStop.addEventListener('click', stopAllProcesses);
 
         // --- HERRAMIENTAS ADICIONALES ---
         document.getElementById('btn-mirror').addEventListener('click', () => textContainer.classList.toggle('mirrored'));
