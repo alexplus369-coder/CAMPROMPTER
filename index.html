@@ -335,10 +335,8 @@
         </div>
     </div>
 
-    <!-- SCRIPT TIPO MODULE: Carga la IA de forma segura como en CamGrab -->
-    <script type="module">
-        import { SelfieSegmentation, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm';
-
+    <!-- SCRIPT ESTANDAR: Evita que el navegador bloquee la app si se abre localmente -->
+    <script>
         /** ALGORITMO VOICE TRACKER */
         class VoiceTracker {
             constructor(fullText) {
@@ -537,7 +535,7 @@
         document.getElementById('btn-scroll-slower').addEventListener('click', () => { scrollSpeed = Math.max(0.5, scrollSpeed - 0.5); });
         document.getElementById('btn-scroll-faster').addEventListener('click', () => { scrollSpeed = Math.min(5.0, scrollSpeed + 0.5); });
 
-        // --- FONDO VIRTUAL IA (USANDO MODULO NATIVO COMO EN CAMGRAB) ---
+        // --- FONDO VIRTUAL IA (CARGA SEGURA Y ASÍNCRONA) ---
         async function loadSegmentationModel() {
             if (segmenter || isModelLoading) return;
             
@@ -545,24 +543,31 @@
             showMessage("Descargando IA de Fondo (MediaPipe)... ⏳", "info");
             
             try {
-                const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm');
-                segmenter = await SelfieSegmentation.createFromOptions(vision, {
+                // Importamos la biblioteca dinámicamente para que no bloquee la app si se abre como archivo local
+                const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm');
+                const FilesetResolver = vision.FilesetResolver;
+                const SelfieSegmentation = vision.SelfieSegmentation;
+
+                const resolver = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm');
+                segmenter = await SelfieSegmentation.createFromOptions(resolver, {
                     baseOptions: {
                         modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/selfie_segmenter/selfie_segmentation/float16/latest/selfie_segmenter.tflite',
-                        // Removido "delegate: GPU" para maximizar la compatibilidad en todos los Android
                     },
                     runningMode: "VIDEO",
                     outputConfidenceMasks: true
                 });
+                
                 isModelLoading = false;
                 showMessage("IA de Fondo Lista ✅", "info");
                 setTimeout(() => subtitle.classList.add('subtitle-hidden'), 2000);
             } catch (e) {
                 console.error("Error al cargar MediaPipe:", e);
-                showMessage("Fallo al iniciar IA de fondo.", "error");
+                // Si falla (por estar en archivo local o error de red), muestra un error pero el resto de la app sigue viva.
+                showMessage("Aviso: Fondo virtual bloqueado. (Requiere servidor web o HTTPS)", "error");
                 isBgRemovalActive = false;
                 document.getElementById('btn-bg-toggle').innerText = "🪄 Fondo: Off";
                 document.getElementById('btn-bg-toggle').classList.remove('active-feature');
+                isModelLoading = false;
             }
         }
 
