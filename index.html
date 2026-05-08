@@ -407,6 +407,7 @@
         // --- SISTEMA DE GRABACIÓN DE VIDEO ---
         async function startVideoRecording(useIA) {
             try {
+                // Asegurar que capturemos audio junto con el video
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: true });
                 videoElement.srcObject = stream;
                 videoElement.classList.add('active');
@@ -440,6 +441,7 @@
                     }
 
                     const canvasStream = recordingCanvas.captureStream(30);
+                    // Asegurarnos de usar las pistas de audio y video
                     const tracks = [...canvasStream.getVideoTracks(), ...finalAudioStream.getAudioTracks()];
                     const combinedStream = new MediaStream(tracks);
 
@@ -464,6 +466,8 @@
                     };
 
                     mediaRecorder.start();
+                    // Iniciar la escucha DESPUÉS de que la cámara se cargue para no interrumpir el flujo de audio
+                    startListeningEngine();
                 };
             } catch (err) {
                 console.error("Error de cámara/micrófono:", err);
@@ -498,8 +502,7 @@
             floatingStop.classList.add('visible');
             textContainer.contentEditable = "false";
             
-            // Iniciamos ambos sistemas inmediatamente
-            startListeningEngine();
+            // Iniciamos solo la grabación, y la grabación iniciará la escucha una vez que tenga el flujo de audio
             startVideoRecording(false);
         });
 
@@ -513,8 +516,7 @@
             floatingStop.classList.add('visible');
             textContainer.contentEditable = "false";
             
-            // Iniciamos ambos sistemas inmediatamente
-            startListeningEngine();
+            // Iniciamos solo la grabación, y la grabación iniciará la escucha una vez que tenga el flujo de audio
             startVideoRecording(true);
         });
 
