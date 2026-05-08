@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>CamGrab Pro – Config Guardable</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #111;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+      font-family: system-ui, sans-serif;
+    }
+    #app {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .canvas-container {
+      position: relative;
+      flex: 1;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+    }
+    video, #processCanvas {
+      position: absolute;
+      opacity: 0;
+    }
+    #outputCanvas {
+      display: block;
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      background: transparent;
+      touch-action: none;
+    }
+    #status {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      text-align: center;
+      color: white;
+      background: rgba(0,0,0,0.6);
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 13px;
+      z-index: 10;
+      pointer-events: none;
+    }
+    #fps {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      color: white;
+      background: rgba(0,0,0,0.6);
+      padding: 2px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      z-index: 10;
+    }
+    .controls-panel {
+      background: rgba(0,0,0,0.75);
+      backdrop-filter: blur(12px);
+      padding: 10px;
+      border-radius: 16px;
+      margin: 10px auto;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+      width: fit-content;
+      max-width: 95vw;
+    }
+    .btn, select, .file-label {
+      background: rgba(255,255,255,0.15);
+      color: white;
+      border: 1px solid rgba(255,255,255,0.25);
+      padding: 10px 14px;
+      border-radius: 100px;
+      font-size: 14px;
+      cursor: pointer;
+      white-space: nowrap;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.2s;
+      outline: none;
+      text-decoration: none;
+    }
+    .btn.active { background: #4CAF50; border-color: #4CAF50; }
+    .btn.recording { background: #F44336; border-color: #F44336; animation: pulse 1.5s infinite; }
+    .layer-btn.active-layer { background: #2196F3; border-color: #2196F3; }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(244,67,54,0.7); }
+      70% { box-shadow: 0 0 0 8px rgba(244,67,54,0); }
+      100% { box-shadow: 0 0 0 0 rgba(244,67,54,0); }
+    }
+    .file-label {
+      display: inline-block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100px;
+    }
+    .small-btn { padding: 6px 10px; font-size: 12px; }
+    #configControls { display: flex; gap: 4px; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <video id="video" playsinline autoplay muted></video>
+    <canvas id="processCanvas"></canvas>
+    <div class="canvas-container">
+      <canvas id="outputCanvas"></canvas>
+      <div id="status">Cargando modelo…</div>
+      <div id="fps">-- FPS</div>
+    </div>
+    <div class="controls-panel">
+      <select id="formatSelect">
+        <option value="9:16:1080:1920">9:16 TikTok</option>
+        <option value="16:9:1920:1080" selected>16:9 YouTube</option>
+        <option value="1:1:1080:1080">1:1 Instagram</option>
+        <option value="4:5:1080:1350">4:5 Instagram</option>
+        <option value="9:16:720:1280">9:16 720p</option>
+        <option value="16:9:1280:720">16:9 720p</option>
+      </select>
+      <button id="toggleBtn" class="btn active">Fondo off ✓</button>
+      <button id="captureBtn" class="btn">📸 Foto</button>
+      <button id="recordBtn" class="btn">⏺️ Grabar</button>
+      <div id="layerControls">
+        <button id="moveBgBtn" class="btn small-btn layer-btn active-layer">Fondo</button>
+        <button id="movePersonBtn" class="btn small-btn layer-btn">Persona</button>
+        <button id="moveOverlayBtn" class="btn small-btn layer-btn">Plantilla</button>
+      </div>
+      <label for="bgFileInput" class="file-label btn">📁 Fondo</label>
+      <input type="file" id="bgFileInput" accept="image/png" style="display:none;">
+      <label for="overlayFileInput" class="file-label btn">📁 Plantilla</label>
+      <input type="file" id="overlayFileInput" accept="image/png" style="display:none;">
+      <div id="configControls">
+        <button id="exportConfigBtn" class="btn small-btn">💾 Exportar</button>
+        <button id="importConfigBtn" class="btn small-btn">📂 Importar</button>
+        <input type="file" id="importConfigFile" accept=".json" style="display:none;">
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { SelfieSegmentation, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm';
+
+    // Elementos
+    const video = document.getElementById('video');
+    const processCanvas = document.getElementById('processCanvas');
+    const processCtx = processCanvas.getContext('2d');
+    const outputCanvas = document.getElementById('outputCanvas');
+    const outputCtx = outputCanvas.getContext('2d');
+    const statusDiv = document.getElementById('status');
+    const fpsDiv = document.getElementById('fps');
+    const toggleBtn = document.getElementById('toggleBtn');
+    const captureBtn = document.getElementById('captureBtn');
+    const recordBtn = document.getElementById('recordBtn');
+    const formatSelect = document.getElementById('formatSelect');
+    const bgFileInput = document.getElementById('bgFileInput');
+    const overlayFileInput = document.getElementById('overlayFileInput');
+    const moveBgBtn = document.getElementById('moveBgBtn');
+    const movePersonBtn = document.getElementById('movePersonBtn');
+    const moveOverlayBtn = document.getElementById('moveOverlayBtn');
+    const exportConfigBtn = document.getElementById('exportConfigBtn');
+    const importConfigBtn = document.getElementById('importConfigBtn');
+    const importConfigFile = document.getElementById('importConfigFile');
+
+    let segmentation, modelLoaded = false;
+    let removeBackgroundActive = true;
+    let lastTimestamp = 0, frameCount = 0, fps = 0;
+    let backgroundImage = null;
+    let overlayImage = null;
+    let outputWidth = 1920, outputHeight = 1080;
+    let activeLayer = 'background';
+    const transforms = {
+      background: { x: 0, y: 0, scale: 1 },
+      person: { x: 0, y: 0, scale: 1 },
+      overlay: { x: 0, y: 0, scale: 1 }
+    };
+    let touchState = null;
+    let mediaRecorder = null, recordedChunks = [], isRecording = false;
+    let recordStartTime = 0, recordTimerInterval = null;
+
+    // ========== Formato de salida ==========
+    function updateOutputDimensions() {
+      const val = formatSelect.value.split(':');
+      outputWidth = parseInt(val[1]);
+      outputHeight = parseInt(val[2]);
+      outputCanvas.width = outputWidth;
+      outputCanvas.height = outputHeight;
+      outputCanvas.style.aspectRatio = `${outputWidth}/${outputHeight}`;
+    }
+    formatSelect.addEventListener('change', updateOutputDimensions);
+    updateOutputDimensions();
+
+    // ========== Cámara ==========
+    async function setupCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
+        });
+        video.srcObject = stream;
+        video.addEventListener('loadedmetadata', () => {
+          processCanvas.width = video.videoWidth;
+          processCanvas.height = video.videoHeight;
+          statusDiv.textContent = 'Modelo cargado. Iniciando…';
+        });
+      } catch (err) {
+        statusDiv.textContent = 'Error cámara: ' + err.message;
+      }
+    }
+
+    // ========== Modelo ==========
+    async function loadModel() {
+      statusDiv.textContent = 'Descargando modelo…';
+      const vision = await FilesetResolver.forVisionTasks(
+        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
+      );
+      segmentation = await SelfieSegmentation.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/selfie_segmenter/selfie_segmentation/float16/latest/selfie_segmenter.tflite'
+        },
+        runningMode: 'VIDEO',
+        outputConfidenceMasks: true,
+        outputCategoryMask: false
+      });
+      modelLoaded = true;
+      statusDiv.textContent = 'Listo – toca una capa para ajustar';
+    }
+
+    // ========== Composición ==========
+    function drawTransformedImage(ctx, img, transform, canvasW, canvasH) {
+      if (!img) return;
+      const imgW = img.width * transform.scale;
+      const imgH = img.height * transform.scale;
+      const x = transform.x - imgW / 2;
+      const y = transform.y - imgH / 2;
+      ctx.drawImage(img, x, y, imgW, imgH);
+    }
+
+    function composeFrame() {
+      if (!modelLoaded || video.readyState < 2) return;
+      const result = segmentation.segmentForVideo(video, performance.now());
+      processCtx.clearRect(0, 0, processCanvas.width, processCanvas.height);
+      processCtx.drawImage(video, 0, 0);
+      if (removeBackgroundActive && result.confidenceMasks?.length) {
+        const imageData = processCtx.getImageData(0, 0, processCanvas.width, processCanvas.height);
+        const pixels = imageData.data;
+        const mask = result.confidenceMasks[0];
+        const maskData = mask.getAsFloat32Array();
+        const scaleX = mask.width / processCanvas.width;
+        const scaleY = mask.height / processCanvas.height;
+        for (let y = 0; y < processCanvas.height; y++) {
+          for (let x = 0; x < processCanvas.width; x++) {
+            const mx = Math.floor(x * scaleX);
+            const my = Math.floor(y * scaleY);
+            const confidence = maskData[my * mask.width + mx] || 0;
+            if (confidence < 0.4) {
+              const idx = (y * processCanvas.width + x) * 4;
+              pixels[idx + 3] = 0;
+            }
+          }
+        }
+        processCtx.putImageData(imageData, 0, 0);
+      }
+      outputCtx.clearRect(0, 0, outputWidth, outputHeight);
+      if (backgroundImage) drawTransformedImage(outputCtx, backgroundImage, transforms.background, outputWidth, outputHeight);
+      drawTransformedImage(outputCtx, processCanvas, transforms.person, outputWidth, outputHeight);
+      if (overlayImage) drawTransformedImage(outputCtx, overlayImage, transforms.overlay, outputWidth, outputHeight);
+    }
+
+    function loop() {
+      if (!modelLoaded) { requestAnimationFrame(loop); return; }
+      composeFrame();
+      frameCount++;
+      const now = performance.now();
+      if (now - lastTimestamp >= 1000) {
+        fps = Math.round(frameCount / ((now - lastTimestamp) / 1000));
+        frameCount = 0; lastTimestamp = now;
+        fpsDiv.textContent = `${fps} FPS`;
+      }
+      requestAnimationFrame(loop);
+    }
+
+    // ========== Capa activa ==========
+    function setActiveLayer(layer) {
+      activeLayer = layer;
+      moveBgBtn.classList.toggle('active-layer', layer === 'background');
+      movePersonBtn.classList.toggle('active-layer', layer === 'person');
+      moveOverlayBtn.classList.toggle('active-layer', layer === 'overlay');
+    }
+    moveBgBtn.addEventListener('click', () => setActiveLayer('background'));
+    movePersonBtn.addEventListener('click', () => setActiveLayer('person'));
+    moveOverlayBtn.addEventListener('click', () => setActiveLayer('overlay'));
+
+    // ========== Gestos táctiles ==========
+    function getCanvasTouchPos(touch) {
+      const rect = outputCanvas.getBoundingClientRect();
+      const scaleX = outputWidth / rect.width;
+      const scaleY = outputHeight / rect.height;
+      return {
+        x: (touch.clientX - rect.left) * scaleX,
+        y: (touch.clientY - rect.top) * scaleY
+      };
+    }
+    outputCanvas.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (e.touches.length === 1) {
+        const pos = getCanvasTouchPos(e.touches[0]);
+        touchState = {
+          type: 'drag',
+          layer: activeLayer,
+          startTransform: { ...transforms[activeLayer] },
+          startPos: pos
+        };
+      } else if (e.touches.length === 2) {
+        const pos1 = getCanvasTouchPos(e.touches[0]);
+        const pos2 = getCanvasTouchPos(e.touches[1]);
+        const dist = Math.hypot(pos2.x - pos1.x, pos2.y - pos1.y);
+        touchState = {
+          type: 'pinch',
+          layer: activeLayer,
+          startTransform: { ...transforms[activeLayer] },
+          initialPinchDist: dist,
+          pinchCenter: { x: (pos1.x + pos2.x) / 2, y: (pos1.y + pos2.y) / 2 }
+        };
+      }
+    }, { passive: false });
+    outputCanvas.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      if (!touchState) return;
+      const t = transforms[touchState.layer];
+      if (touchState.type === 'drag' && e.touches.length === 1) {
+        const pos = getCanvasTouchPos(e.touches[0]);
+        t.x = touchState.startTransform.x + (pos.x - touchState.startPos.x);
+        t.y = touchState.startTransform.y + (pos.y - touchState.startPos.y);
+      } else if (touchState.type === 'pinch' && e.touches.length === 2) {
+        const pos1 = getCanvasTouchPos(e.touches[0]);
+        const pos2 = getCanvasTouchPos(e.touches[1]);
+        const dist = Math.hypot(pos2.x - pos1.x, pos2.y - pos1.y);
+        if (touchState.initialPinchDist > 0) {
+          const newScale = touchState.startTransform.scale * (dist / touchState.initialPinchDist);
+          t.scale = Math.min(5, Math.max(0.3, newScale));
+        }
+      }
+    }, { passive: false });
+    outputCanvas.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      touchState = null;
+    });
+
+    // ========== Carga de imágenes con auto‑config ==========
+    function updateBgFileLabel(name) {
+      const label = document.querySelector('label[for="bgFileInput"]');
+      if (label) label.textContent = name || '📁 Fondo';
+    }
+    function updateOverlayFileLabel(name) {
+      const label = document.querySelector('label[for="overlayFileInput"]');
+      if (label) label.textContent = name || '📁 Plantilla';
+    }
+
+    function loadBackgroundFromFile(file) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          backgroundImage = img;
+          updateBgFileLabel(file.name);
+          autoSaveConfig();
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function loadOverlayFromFile(file) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          overlayImage = img;
+          updateOverlayFileLabel(file.name);
+          autoSaveConfig();
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    bgFileInput.addEventListener('change', (e) => {
+      if (e.target.files[0]) loadBackgroundFromFile(e.target.files[0]);
+    });
+    overlayFileInput.addEventListener('change', (e) => {
+      if (e.target.files[0]) loadOverlayFromFile(e.target.files[0]);
+    });
+
+    // ========== Botones comunes ==========
+    toggleBtn.addEventListener('click', () => {
+      removeBackgroundActive = !removeBackgroundActive;
+      toggleBtn.textContent = removeBackgroundActive ? 'Fondo off ✓' : 'Fondo original';
+      toggleBtn.classList.toggle('active', removeBackgroundActive);
+      autoSaveConfig();
+    });
+
+    captureBtn.addEventListener('click', () => {
+      outputCanvas.toBlob(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `captura_${Date.now()}.png`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }, 'image/png');
+    });
+
+    // Grabación (misma lógica)
+    function updateRecordTimer() {
+      if (!isRecording) return;
+      const elapsed = Math.floor((Date.now() - recordStartTime) / 1000);
+      const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+      const s = String(elapsed % 60).padStart(2, '0');
+      recordBtn.innerHTML = `⏺️ Grabar ${m}:${s}`;
+    }
+    async function startRecording() {
+      recordedChunks = [];
+      const stream = outputCanvas.captureStream(30);
+      const mimeList = ['video/webm;codecs=vp9.0', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+      let mime = '';
+      for (const m of mimeList) if (MediaRecorder.isTypeSupported(m)) { mime = m; break; }
+      if (!mime) { alert('Navegador no soporta grabación WebM.'); return; }
+      mediaRecorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 3000000 });
+      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(recordedChunks, { type: mime });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `video_${Date.now()}.webm`;
+        a.click();
+        URL.revokeObjectURL(url);
+        recordedChunks = [];
+        recordBtn.classList.remove('recording');
+        recordBtn.innerHTML = '⏺️ Grabar';
+        clearInterval(recordTimerInterval);
+        statusDiv.textContent = 'Video guardado';
+      };
+      mediaRecorder.start();
+      isRecording = true;
+      recordStartTime = Date.now();
+      recordBtn.classList.add('recording');
+      updateRecordTimer();
+      recordTimerInterval = setInterval(updateRecordTimer, 200);
+      statusDiv.textContent = 'Grabando...';
+    }
+    function stopRecording() {
+      if (mediaRecorder && isRecording) {
+        mediaRecorder.stop();
+        isRecording = false;
+      }
+    }
+    recordBtn.addEventListener('click', () => {
+      if (!modelLoaded) { alert('Espera el modelo'); return; }
+      isRecording ? stopRecording() : startRecording();
+    });
+
+    // ========== Persistencia de configuración ==========
+    const STORAGE_KEY = 'camgrab_config';
+
+    function getConfig() {
+      return {
+        format: formatSelect.value,
+        removeBackground: removeBackgroundActive,
+        transforms: {
+          background: { ...transforms.background },
+          person: { ...transforms.person },
+          overlay: { ...transforms.overlay }
+        },
+        activeLayer,
+        backgroundImageBase64: backgroundImage ? backgroundImage.src : null,
+        overlayImageBase64: overlayImage ? overlayImage.src : null
+      };
+    }
+
+    function autoSaveConfig() {
+      try {
+        const config = getConfig();
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+      } catch (e) {
+        console.warn('No se pudo guardar config automáticamente:', e);
+      }
+    }
+
+    async function loadConfig(config) {
+      // Restaurar formato
+      if (config.format) {
+        formatSelect.value = config.format;
+        updateOutputDimensions();
+      }
+      // Restaurar eliminación fondo
+      removeBackgroundActive = config.removeBackground ?? true;
+      toggleBtn.textContent = removeBackgroundActive ? 'Fondo off ✓' : 'Fondo original';
+      toggleBtn.classList.toggle('active', removeBackgroundActive);
+      // Transformaciones
+      if (config.transforms) {
+        for (const layer of ['background', 'person', 'overlay']) {
+          if (config.transforms[layer]) {
+            transforms[layer] = { ...config.transforms[layer] };
+          }
+        }
+      }
+      // Capa activa
+      if (config.activeLayer) setActiveLayer(config.activeLayer);
+      // Imágenes
+      const loadImageFromBase64 = (base64) => {
+        return new Promise((resolve) => {
+          if (!base64) return resolve(null);
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.src = base64;
+        });
+      };
+      if (config.backgroundImageBase64) {
+        backgroundImage = await loadImageFromBase64(config.backgroundImageBase64);
+        updateBgFileLabel('(guardado)');
+      } else {
+        backgroundImage = null;
+        updateBgFileLabel('📁 Fondo');
+      }
+      if (config.overlayImageBase64) {
+        overlayImage = await loadImageFromBase64(config.overlayImageBase64);
+        updateOverlayFileLabel('(guardado)');
+      } else {
+        overlayImage = null;
+        updateOverlayFileLabel('📁 Plantilla');
+      }
+    }
+
+    function loadConfigFromLocalStorage() {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const config = JSON.parse(saved);
+          loadConfig(config);
+          statusDiv.textContent = 'Configuración cargada';
+          setTimeout(() => { if (modelLoaded) statusDiv.textContent = 'Listo'; }, 1500);
+        }
+      } catch (e) {
+        console.warn('Error al cargar config:', e);
+      }
+    }
+
+    // Exportar JSON
+    exportConfigBtn.addEventListener('click', () => {
+      const config = getConfig();
+      const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `camgrab_config_${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // Importar JSON
+    importConfigBtn.addEventListener('click', () => importConfigFile.click());
+    importConfigFile.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const config = JSON.parse(text);
+        await loadConfig(config);
+        autoSaveConfig();
+        statusDiv.textContent = 'Configuración importada correctamente';
+      } catch (err) {
+        alert('Error al importar: ' + err.message);
+      } finally {
+        importConfigFile.value = '';
+      }
+    });
+
+    // Auto‑guardado al modificar cualquier transformación o formato
+    formatSelect.addEventListener('change', autoSaveConfig);
+    // Observar cambios en transforms? Los gestos ya modifican transforms directamente,
+    // así que guardamos en cada frame o en touchend.
+    outputCanvas.addEventListener('touchend', () => {
+      autoSaveConfig();
+    });
+
+    // Inicio
+    async function init() {
+      await setupCamera();
+      await loadModel();
+      loadConfigFromLocalStorage();
+      loop();
+    }
+    init().catch(err => { statusDiv.textContent = 'Error: ' + err.message; });
+  </script>
+</body>
+</html>
