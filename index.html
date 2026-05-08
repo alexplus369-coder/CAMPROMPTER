@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Teleprompter Pro Studio</title>
+    
+    <!-- Carga de MediaPipe -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.js" crossorigin="anonymous"></script>
+
     <style>
         :root {
             --bg-color: #0f172a;
@@ -36,7 +40,7 @@
             display: flex;
             flex-wrap: wrap;
             justify-content: center;
-            gap: 15px;
+            gap: 10px;
             z-index: 100;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
             transition: transform 0.3s ease, opacity 0.3s ease;
@@ -48,26 +52,31 @@
             pointer-events: none;
         }
 
-        button {
+        .btn, button, select {
             background-color: #3b82f6;
             color: white;
             border: none;
-            padding: 10px 20px;
+            padding: 8px 16px;
             border-radius: 8px;
-            font-size: 16px;
+            font-size: 14px;
             font-weight: bold;
             cursor: pointer;
             transition: background-color 0.2s, transform 0.1s;
             display: flex;
             align-items: center;
-            gap: 8px;
+            justify-content: center;
+            gap: 6px;
+            outline: none;
+            text-decoration: none;
         }
-
-        button:hover { background-color: #2563eb; }
-        button:active { transform: scale(0.95); }
+        
+        select { background-color: #475569; }
+        .btn:hover, button:hover, select:hover { background-color: #2563eb; }
+        .btn:active, button:active { transform: scale(0.95); }
         
         #btn-record-ia { background-color: #8b5cf6; }
         #btn-record-ia:hover { background-color: #7c3aed; }
+        .active-feature { background-color: #10b981 !important; border: 2px solid white; }
         .active-audio { background-color: #f59e0b !important; }
 
         /* --- Contenedor del Texto --- */
@@ -77,7 +86,7 @@
             scroll-behavior: smooth;
             padding: 0 10%;
             scrollbar-width: none;
-            background: rgba(15, 23, 42, 0.5);
+            background: rgba(15, 23, 42, 0.4);
         }
         #scroll-container::-webkit-scrollbar { display: none; }
 
@@ -93,7 +102,7 @@
         }
 
         .mirrored { transform: scaleX(-1); }
-        .placeholder { color: #64748b; font-weight: normal; }
+        .placeholder { color: #94a3b8; font-weight: normal; }
 
         /* --- Subtítulos en Vivo --- */
         #live-subtitle {
@@ -105,17 +114,18 @@
             color: var(--accent-color);
             padding: 12px 24px;
             border-radius: 12px;
-            font-size: 24px;
+            font-size: 20px;
             font-weight: bold;
             z-index: 100;
             pointer-events: none;
             border: 1px solid rgba(16, 185, 129, 0.3);
             text-align: center;
-            max-width: 80%;
+            max-width: 90%;
             transition: opacity 0.3s;
         }
         .subtitle-hidden { opacity: 0; }
         .subtitle-error { color: #ef4444 !important; border-color: #ef4444 !important; }
+        .subtitle-info { color: #3b82f6 !important; border-color: #3b82f6 !important; }
 
         /* --- Estilos de Cámara --- */
         #camera-feed {
@@ -127,7 +137,6 @@
             object-fit: cover;
             z-index: -1;
             opacity: 0;
-            transition: opacity 0.5s;
         }
         #camera-feed.active { opacity: 1; }
 
@@ -191,7 +200,7 @@
             100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
         }
 
-        /* --- CONTROLES DE AUTO-SCROLL (NUEVO) --- */
+        /* --- CONTROLES DE AUTO-SCROLL --- */
         #auto-scroll-controls {
             position: fixed;
             bottom: 30px;
@@ -208,10 +217,7 @@
             transition: opacity 0.3s;
             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
         }
-        #auto-scroll-controls.visible {
-            opacity: 1;
-            pointer-events: auto;
-        }
+        #auto-scroll-controls.visible { opacity: 1; pointer-events: auto; }
         .scroll-btn {
             background: transparent;
             color: white;
@@ -222,6 +228,48 @@
         }
         .scroll-btn.play { background: #3b82f6; }
         .scroll-btn.play.active { background: #10b981; border-color: #10b981; }
+
+        /* --- PANTALLA DE PREVISUALIZACIÓN Y DESCARGA --- */
+        #preview-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(15, 23, 42, 0.98);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            opacity: 1;
+            transition: opacity 0.3s;
+        }
+        #preview-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        #preview-video {
+            max-width: 90%;
+            max-height: 60vh;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            margin: 20px 0;
+            background: #000;
+        }
+        .preview-actions {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .btn-download {
+            background-color: var(--accent-color);
+            font-size: 18px;
+            padding: 15px 30px;
+        }
+        .btn-download:hover { background-color: #059669; }
+        .title-preview { color: white; margin-bottom: 5px; font-size: 24px; text-align: center; }
     </style>
 </head>
 <body>
@@ -229,31 +277,40 @@
     <video id="camera-feed" autoplay muted playsinline></video>
     <canvas id="recording-canvas" style="display: none;"></canvas>
 
+    <!-- Canvas Ocultos para Procesamiento Optimizados de IA -->
+    <canvas id="process-canvas" style="display: none;"></canvas>
+    <canvas id="mask-canvas" style="display: none;"></canvas>
+
     <div id="toolbar">
-        <button id="btn-record" title="Grabar Video">
-            <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="M8 13A5 5 0 1 1 8 3a5 5 0 0 1 0 10z"/><path d="M8 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg>
-            Grabar Video
-        </button>
-        <button id="btn-record-ia" title="Grabar con Corrección Visual IA">
-            <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="M10.478 2.347a.5.5 0 0 0-.956 0l-.544 1.632a.5.5 0 0 1-.318.318l-1.632.544a.5.5 0 0 0 0 .956l1.632.544a.5.5 0 0 1 .318.318l.544 1.632a.5.5 0 0 0 .956 0l.544-1.632a.5.5 0 0 1 .318-.318l1.632-.544a.5.5 0 0 0 0-.956l-1.632-.544a.5.5 0 0 1-.318-.318l-.544-1.632zM5.5 6.5A3.5 3.5 0 1 0 9 10a3.5 3.5 0 0 0-3.5-3.5z"/></svg>
-            Rec IA ✨
-        </button>
-        <button id="btn-mic" title="Solo mover el texto (Sin grabar)">
-            <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0V3z"/><path d="M3.5 6.5A.5.5 0 0 1 4 7v1a4 4 0 0 0 8 0V7a.5.5 0 0 1 1 0v1a5 5 0 0 1-4.5 4.975V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 .5-.5z"/></svg>
-            Solo Voz (IA)
-        </button>
+        <!-- Controles de Video -->
+        <select id="formatSelect" title="Formato de Grabación">
+            <option value="auto" selected>📹 Auto</option>
+            <option value="9:16">📱 9:16</option>
+            <option value="1:1">⬛ 1:1</option>
+            <option value="16:9">📺 16:9</option>
+        </select>
+        
+        <!-- Nuevos Controles de Fondo Virtual -->
+        <button id="btn-bg-toggle" title="Activar Croma con IA">🪄 Fondo: Off</button>
+        <button id="btn-bg-select" title="Cambiar Fondo" style="display:none; background-color: #6366f1;">📁 Imagen/Video</button>
+        <input type="file" id="file-bg" accept="image/*,video/*" style="display:none;">
+
+        <button id="btn-record">Grabar Video</button>
+        <button id="btn-record-ia">Rec IA ✨</button>
+        <button id="btn-mic">Solo Voz (IA)</button>
+        
+        <!-- Herramientas -->
         <button id="btn-mirror">🪞 Espejo</button>
-        <button id="btn-enhance-audio" title="Filtro de Audio Studio">🎙️ Audio: Normal</button>
-        <button id="btn-font-down" title="Reducir Letra">A-</button>
-        <button id="btn-font-up" title="Aumentar Letra">A+</button>
-        <button id="btn-contrast" title="Modo Alto Contraste">🌓 Contraste</button>
-        <button id="btn-focus" title="Línea de Enfoque">⌖ Enfoque</button>
+        <button id="btn-enhance-audio">🎙️ Audio Normal</button>
+        <button id="btn-font-down">A-</button>
+        <button id="btn-font-up">A+</button>
+        <button id="btn-contrast">🌓 Contraste</button>
+        <button id="btn-focus">⌖ Enfoque</button>
         <button id="btn-reset">↺ Arriba</button>
     </div>
 
-    <button id="floating-stop" title="Detener Grabación o Escucha">⏹</button>
+    <button id="floating-stop" title="Detener">⏹</button>
 
-    <!-- Controles de Auto-Scroll para Grabación de Video -->
     <div id="auto-scroll-controls">
         <button id="btn-scroll-slower" class="scroll-btn">🐢</button>
         <button id="btn-scroll-play" class="scroll-btn play">▶</button>
@@ -263,15 +320,29 @@
     <div id="scroll-container">
         <div id="teleprompter-text" contenteditable="true" class="placeholder">
             Haz clic aquí y pega tu guion. <br><br>
-            Asegúrate de dar permisos de cámara y micrófono. <br>Puedes grabar video, usar la IA visual, o usar 'Solo Voz' para practicar.
+            Asegúrate de dar permisos. <br>Puedes grabar, cambiar el fondo con IA, usar auto-scroll o seguir tu voz.
         </div>
     </div>
 
     <div id="focus-zone" class="hidden"></div>
-    <div id="live-subtitle" class="subtitle-hidden">Esperando tu voz...</div>
+    <div id="live-subtitle" class="subtitle-hidden">Esperando...</div>
+
+    <!-- Pantalla de Previsualización y Descarga (Modificada) -->
+    <div id="preview-overlay" class="hidden">
+        <h2 class="title-preview">¡Grabación Terminada!</h2>
+        <p style="color: #94a3b8; text-align: center;">Revisa tu video y guárdalo.</p>
+        
+        <video id="preview-video" controls playsinline></video>
+        
+        <div class="preview-actions">
+            <!-- Ahora es un BUTTON en lugar de un enlace A para invocar a Android -->
+            <button id="btn-download-video" class="btn btn-download">⬇️ Guardar / Compartir</button>
+            <button id="btn-close-preview" class="btn" style="background-color: var(--danger-color);">Cerrar y Volver</button>
+        </div>
+    </div>
 
     <script>
-        /** ALGORITMO VOICE TRACKER - RÁPIDO Y PURO (Solo Voz) */
+        /** ALGORITMO VOICE TRACKER */
         class VoiceTracker {
             constructor(fullText) {
                 this.scriptWords = this.normalize(fullText).split(/\s+/).filter(w => w.length > 0);
@@ -319,8 +390,15 @@
         const videoElement = document.getElementById('camera-feed');
         const recordingCanvas = document.getElementById('recording-canvas');
         const ctx = recordingCanvas.getContext('2d');
+        const formatSelect = document.getElementById('formatSelect');
 
-        // Variables de Estado
+        // Referencias IA Fondo
+        const processCanvas = document.getElementById('process-canvas');
+        const processCtx = processCanvas.getContext('2d', { willReadFrequently: true });
+        const maskCanvas = document.getElementById('mask-canvas');
+        const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
+
+        // Variables de Estado Globales
         let voiceTracker = null;
         let isListening = false;
         let isRecordingVideo = false;
@@ -332,11 +410,28 @@
         let recordedChunks = [];
         let animationFrameId = null;
         let currentSubtitleText = "";
+        let finalTranscript = "";
 
         // Variables Auto-Scroll
-        let autoScrollInterval = null;
         let isAutoScrolling = false;
-        let scrollSpeed = 1.5; // Píxeles por frame
+        let scrollSpeed = 1.5;
+
+        // Variables Recorte y Fondo
+        let outputWidth = 0;
+        let outputHeight = 0;
+        let segmenter = null;
+        let isBgRemovalActive = false;
+        let isModelLoading = false;
+        let bgMedia = null;
+
+        function showMessage(msg, type = '') {
+            subtitle.innerText = msg;
+            subtitle.className = 'subtitle-hidden';
+            setTimeout(() => {
+                subtitle.classList.remove('subtitle-hidden');
+                if (type) subtitle.classList.add(`subtitle-${type}`);
+            }, 10);
+        }
 
         textContainer.addEventListener('focus', function() {
             if (this.classList.contains('placeholder')) {
@@ -345,43 +440,72 @@
             }
         });
 
-        // --- SISTEMA DE RECONOCIMIENTO DE VOZ NATIVO (Modo: Solo Voz) ---
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (SpeechRecognition) {
+        // --- SISTEMA DE RECONOCIMIENTO DE VOZ NATIVO ---
+        function initNativeSpeechIfNeeded() {
+            if (recognition) return true;
+
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                alert("Tu navegador no soporta reconocimiento de voz nativo. Usa Chrome.");
+                return false;
+            }
+
             recognition = new SpeechRecognition();
             recognition.continuous = true;
             recognition.interimResults = true;
             recognition.lang = 'es-ES';
 
             recognition.onresult = (event) => {
-                let currentStr = "";
-                for (let i = event.resultIndex; i < event.results.length; ++i) currentStr += event.results[i][0].transcript;
-                currentSubtitleText = currentStr.trim();
+                let interimTranscript = '';
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript + ' ';
+                    } else {
+                        interimTranscript += event.results[i][0].transcript;
+                    }
+                }
+                const totalSpoken = finalTranscript + interimTranscript;
+                currentSubtitleText = interimTranscript || finalTranscript.split(" ").slice(-8).join(" ");
                 
-                if (currentSubtitleText !== '') {
+                if (currentSubtitleText.trim() !== '') {
                     subtitle.innerText = currentSubtitleText;
                     subtitle.classList.remove('subtitle-hidden', 'subtitle-error');
-    
-                    if (voiceTracker) {
-                        const progress = voiceTracker.calculateProgress(currentSubtitleText);
+                    if (voiceTracker && totalSpoken.trim() !== '') {
+                        const progress = voiceTracker.calculateProgress(totalSpoken);
                         const maxScroll = scrollContainer.scrollHeight - scrollContainer.clientHeight;
-                        if (maxScroll > 0) scrollContainer.scrollTo({ top: maxScroll * progress, behavior: 'smooth' });
+                        if (maxScroll > 0) {
+                            scrollContainer.scrollTo({ top: maxScroll * progress, behavior: 'smooth' });
+                        }
                     }
                 }
             };
-            recognition.onerror = (event) => { if (event.error !== 'no-speech') console.warn("Error voz:", event.error); };
-            recognition.onend = () => { if (isListening) try { recognition.start(); } catch(e) {} };
+
+            recognition.onerror = (event) => {
+                if (event.error !== 'no-speech') {
+                    showMessage("Error micrófono: " + event.error, "error");
+                }
+            };
+
+            recognition.onend = () => {
+                if (isListening) { setTimeout(() => { try { recognition.start(); } catch(e) {} }, 300); }
+            };
+
+            return true;
         }
 
         function startListeningEngine() {
-            if (!recognition) { alert("Navegador no soporta IA de voz."); return false; }
-            if (textContainer.innerText.trim() === '') { alert("Pega tu guion primero."); return false; }
+            if (textContainer.innerText.trim() === '') {
+                alert("Primero pega o escribe un guion.");
+                return false;
+            }
+            if (!initNativeSpeechIfNeeded()) return false;
             
+            finalTranscript = "";
             voiceTracker = new VoiceTracker(textContainer.innerText);
-            isListening = true;
-            subtitle.classList.remove('subtitle-error', 'subtitle-hidden');
-            subtitle.innerText = "Te escucho (IA Activa)...";
+            
             try { recognition.start(); } catch (e) { }
+            isListening = true;
+            showMessage("Te escucho...", "info");
             return true;
         }
 
@@ -392,10 +516,9 @@
             currentSubtitleText = "";
         }
 
-        // --- SISTEMA AUTO-SCROLL (Para modo Video) ---
+        // --- AUTO-SCROLL (Modo Video) ---
         function performAutoScroll() {
             if (isAutoScrolling) {
-                // Comportamiento suave fluido independientemente del dispositivo
                 scrollContainer.scrollBy({ top: scrollSpeed, behavior: 'instant' }); 
                 requestAnimationFrame(performAutoScroll);
             }
@@ -417,19 +540,121 @@
         document.getElementById('btn-scroll-slower').addEventListener('click', () => { scrollSpeed = Math.max(0.5, scrollSpeed - 0.5); });
         document.getElementById('btn-scroll-faster').addEventListener('click', () => { scrollSpeed = Math.min(5.0, scrollSpeed + 0.5); });
 
+        // --- FONDO VIRTUAL IA ---
+        async function loadSegmentationModel() {
+            if (segmenter || isModelLoading) return;
+            if (!window.FilesetResolver || !window.SelfieSegmentation) {
+                showMessage("La biblioteca de IA no cargó correctamente.", "error");
+                return;
+            }
+
+            isModelLoading = true;
+            showMessage("Descargando IA de Fondo (MediaPipe)... ⏳", "info");
+            
+            try {
+                const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm');
+                segmenter = await SelfieSegmentation.createFromOptions(vision, {
+                    baseOptions: {
+                        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/selfie_segmenter/selfie_segmentation/float16/latest/selfie_segmenter.tflite',
+                        delegate: "GPU"
+                    },
+                    runningMode: "VIDEO",
+                    outputConfidenceMasks: true
+                });
+                isModelLoading = false;
+                showMessage("IA de Fondo Lista ✅", "info");
+                setTimeout(() => subtitle.classList.add('subtitle-hidden'), 2000);
+            } catch (e) {
+                console.error("Error al cargar MediaPipe:", e);
+                showMessage("Fallo al iniciar IA de fondo.", "error");
+                isBgRemovalActive = false;
+                document.getElementById('btn-bg-toggle').innerText = "🪄 Fondo: Off";
+                document.getElementById('btn-bg-toggle').classList.remove('active-feature');
+            }
+        }
+
+        document.getElementById('btn-bg-toggle').addEventListener('click', (e) => {
+            isBgRemovalActive = !isBgRemovalActive;
+            const btn = e.currentTarget;
+            const btnSelect = document.getElementById('btn-bg-select');
+            
+            if (isBgRemovalActive) {
+                btn.innerText = "🪄 Fondo: On";
+                btn.classList.add('active-feature');
+                btnSelect.style.display = 'flex';
+                if (!segmenter) loadSegmentationModel();
+            } else {
+                btn.innerText = "🪄 Fondo: Off";
+                btn.classList.remove('active-feature');
+                btnSelect.style.display = 'none';
+            }
+        });
+
+        document.getElementById('btn-bg-select').addEventListener('click', () => {
+            document.getElementById('file-bg').click();
+        });
+
+        document.getElementById('file-bg').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            if (bgMedia && bgMedia.tagName === 'VIDEO') {
+                bgMedia.pause();
+                bgMedia.removeAttribute('src');
+                bgMedia.load();
+            }
+
+            const url = URL.createObjectURL(file);
+            if (file.type.startsWith('video/')) {
+                bgMedia = document.createElement('video');
+                bgMedia.src = url;
+                bgMedia.autoplay = true;
+                bgMedia.loop = true;
+                bgMedia.muted = true;
+                bgMedia.playsInline = true;
+                bgMedia.play().catch(console.error);
+            } else if (file.type.startsWith('image/')) {
+                bgMedia = new Image();
+                bgMedia.src = url;
+            }
+        });
+
+        function setCanvasDimensions(videoW, videoH) {
+            const format = formatSelect.value;
+            if (format === 'auto') {
+                outputWidth = videoW;
+                outputHeight = videoH;
+            } else {
+                const minDimension = Math.min(videoW, videoH);
+                if (format === '1:1') {
+                    outputWidth = minDimension; outputHeight = minDimension;
+                } else if (format === '9:16') {
+                    outputWidth = (minDimension * 9) / 16; outputHeight = minDimension;
+                    if(outputWidth > videoW){ outputWidth = videoW; outputHeight = (videoW * 16) / 9; }
+                } else if (format === '16:9') {
+                    outputHeight = (minDimension * 9) / 16; outputWidth = minDimension;
+                     if(outputHeight > videoH){ outputHeight = videoH; outputWidth = (videoH * 16) / 9; }
+                }
+            }
+            outputWidth = Math.floor(outputWidth / 2) * 2;
+            outputHeight = Math.floor(outputHeight / 2) * 2;
+            recordingCanvas.width = outputWidth;
+            recordingCanvas.height = outputHeight;
+        }
+
         // --- SISTEMA DE GRABACIÓN DE VIDEO ---
         async function startVideoRecording(useIA) {
             try {
-                // Almacenamos el audio y video en una sola llamada firme, el micrófono es solo del video
+                showMessage("Iniciando cámara...", "info");
+                
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: true });
                 videoElement.srcObject = stream;
                 videoElement.classList.add('active');
                 
                 videoElement.onloadedmetadata = () => {
-                    videoElement.play().catch(e=>console.log(e));
+                    videoElement.play().catch(e=>console.log("Error auto-play video:", e));
+                    setCanvasDimensions(videoElement.videoWidth, videoElement.videoHeight);
                     
-                    recordingCanvas.width = videoElement.videoWidth;
-                    recordingCanvas.height = videoElement.videoHeight;
                     isRecordingVideo = true;
                     isIARecording = useIA;
                     recordedChunks = [];
@@ -438,113 +663,222 @@
 
                     let finalAudioStream = stream;
                     if (useAudioEnhancement) {
-                        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                        const source = audioCtx.createMediaStreamSource(stream);
-                        const destination = audioCtx.createMediaStreamDestination();
-                        const highpass = audioCtx.createBiquadFilter(); highpass.type = 'highpass'; highpass.frequency.value = 85;
-                        const eqLowMid = audioCtx.createBiquadFilter(); eqLowMid.type = 'peaking'; eqLowMid.frequency.value = 400; eqLowMid.Q.value = 1; eqLowMid.gain.value = -4;
-                        const eqPresence = audioCtx.createBiquadFilter(); eqPresence.type = 'peaking'; eqPresence.frequency.value = 4000; eqPresence.Q.value = 1; eqPresence.gain.value = 5;
-                        const compressor = audioCtx.createDynamicsCompressor(); compressor.threshold.value = -24; compressor.ratio.value = 4;
-                        source.connect(highpass); highpass.connect(eqLowMid);
-                        eqLowMid.connect(eqPresence); eqPresence.connect(compressor);
-                        compressor.connect(destination);
-                        finalAudioStream = destination.stream;
+                        try {
+                            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                            const source = audioCtx.createMediaStreamSource(stream);
+                            const destination = audioCtx.createMediaStreamDestination();
+                            const highpass = audioCtx.createBiquadFilter(); highpass.type = 'highpass'; highpass.frequency.value = 85;
+                            const eqLowMid = audioCtx.createBiquadFilter(); eqLowMid.type = 'peaking'; eqLowMid.frequency.value = 400; eqLowMid.Q.value = 1; eqLowMid.gain.value = -4;
+                            const eqPresence = audioCtx.createBiquadFilter(); eqPresence.type = 'peaking'; eqPresence.frequency.value = 4000; eqPresence.Q.value = 1; eqPresence.gain.value = 5;
+                            const compressor = audioCtx.createDynamicsCompressor(); compressor.threshold.value = -24; compressor.ratio.value = 4;
+                            source.connect(highpass); highpass.connect(eqLowMid);
+                            eqLowMid.connect(eqPresence); eqPresence.connect(compressor);
+                            compressor.connect(destination);
+                            finalAudioStream = destination.stream;
+                        } catch (e) {
+                            console.warn("Fallo al aplicar efectos de audio:", e);
+                        }
                     }
 
-                    const canvasStream = recordingCanvas.captureStream(30);
-                    const tracks = [...canvasStream.getVideoTracks(), ...finalAudioStream.getAudioTracks()];
-                    const combinedStream = new MediaStream(tracks);
+                    try {
+                        const canvasStream = recordingCanvas.captureStream(30);
+                        const tracks = [...canvasStream.getVideoTracks(), ...finalAudioStream.getAudioTracks()];
+                        const combinedStream = new MediaStream(tracks);
 
-                    mediaRecorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm' });
-                    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
-                    
-                    mediaRecorder.onstop = () => {
-                        if (recordedChunks.length === 0) return;
-                        const blob = new Blob(recordedChunks, { type: 'video/webm' });
-                        const url = URL.createObjectURL(blob);
+                        const mimeTypesToTry = [
+                            'video/webm;codecs=vp9,opus',
+                            'video/webm;codecs=vp8,opus',
+                            'video/webm',
+                            'video/mp4'
+                        ];
                         
-                        const a = document.createElement('a');
-                        a.style.display = 'none';
-                        a.href = url;
-                        a.download = isIARecording ? 'Teleprompter_IA_Studio.webm' : 'Teleprompter_Video.webm';
-                        document.body.appendChild(a);
-                        a.click();
-                        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
-                    };
+                        let selectedMimeType = '';
+                        for (const mimeType of mimeTypesToTry) {
+                            if (MediaRecorder.isTypeSupported(mimeType)) {
+                                selectedMimeType = mimeType;
+                                break;
+                            }
+                        }
 
-                    mediaRecorder.start();
+                        if (!selectedMimeType) {
+                            showMessage("No hay formato de video soportado.", "error");
+                            return;
+                        }
 
-                    // UI para Modo Video
-                    toolbar.classList.add('hidden');
-                    floatingStop.classList.add('visible');
-                    autoScrollControls.classList.add('visible'); // Mostrar controles de velocidad manual
-                    textContainer.contentEditable = "false";
+                        mediaRecorder = new MediaRecorder(combinedStream, { mimeType: selectedMimeType });
+                        
+                        mediaRecorder.ondataavailable = e => { 
+                            if (e.data && e.data.size > 0) {
+                                recordedChunks.push(e.data); 
+                            }
+                        };
+                        
+                        mediaRecorder.onstop = () => {
+                            if (recordedChunks.length === 0) {
+                                showMessage("Error: No se grabó información.", "error");
+                                return;
+                            }
+                            
+                            const blob = new Blob(recordedChunks, { type: selectedMimeType || 'video/webm' });
+                            const videoUrl = URL.createObjectURL(blob);
+                            
+                            const formatName = formatSelect.value === 'auto' ? '' : `_${formatSelect.value.replace(':','x')}`;
+                            const extension = selectedMimeType.includes('mp4') ? 'mp4' : 'webm';
+                            const fileName = isIARecording ? `Teleprompter_IA${formatName}.${extension}` : `Teleprompter${formatName}.${extension}`;
+                            
+                            // Pasamos el Blob real a la pantalla de previsualización
+                            showPreviewScreen(blob, videoUrl, fileName);
+                        };
+
+                        mediaRecorder.start();
+                        startListeningEngine();
+                        showMessage("Grabando...", "info");
+
+                        toolbar.classList.add('hidden');
+                        floatingStop.classList.add('visible');
+                        autoScrollControls.classList.add('visible'); 
+                        textContainer.contentEditable = "false";
+                        
+                    } catch (err) {
+                        console.error("Error al iniciar MediaRecorder:", err);
+                        showMessage("Error al iniciar grabación.", "error");
+                        stopAllProcesses();
+                    }
                 };
             } catch (err) {
-                alert("Asegúrate de dar permisos de cámara y micrófono.");
+                console.error("Error getUserMedia:", err);
+                showMessage("Cámara o Micrófono denegados.", "error");
                 toolbar.classList.remove('hidden');
             }
         }
 
-        // --- EVENTOS PRINCIPALES ---
-        document.getElementById('btn-mic').addEventListener('click', () => {
-            if (startListeningEngine()) {
-                toolbar.classList.add('hidden');
-                floatingStop.classList.add('visible');
-                textContainer.contentEditable = "false";
-            }
-        });
+        // --- PANTALLA DE PREVISUALIZACIÓN Y COMPARTIR NATIVO ---
+        function showPreviewScreen(blob, videoUrl, fileName) {
+            const overlay = document.getElementById('preview-overlay');
+            const videoElem = document.getElementById('preview-video');
+            const btnDownload = document.getElementById('btn-download-video');
+            const btnClose = document.getElementById('btn-close-preview');
 
-        document.getElementById('btn-record').addEventListener('click', () => {
-            if (textContainer.innerText.trim() === '') { alert("Pega tu guion."); return; }
-            startVideoRecording(false);
-        });
+            videoElem.src = videoUrl;
+            overlay.classList.remove('hidden');
 
-        document.getElementById('btn-record-ia').addEventListener('click', () => {
-            if (textContainer.innerText.trim() === '') { alert("Pega tu guion."); return; }
-            startVideoRecording(true);
-        });
+            // Al hacer clic en descargar/compartir
+            btnDownload.onclick = async () => {
+                // Creamos un Objeto de Archivo a partir del Blob
+                const file = new File([blob], fileName, { type: blob.type });
 
-        // --- DETENER TODO ---
-        function stopAllProcesses() {
-            if (isRecordingVideo) {
-                isRecordingVideo = false;
-                if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
-                cancelAnimationFrame(animationFrameId);
-                const stream = videoElement.srcObject;
-                if (stream) stream.getTracks().forEach(track => track.stop());
-                videoElement.classList.remove('active');
-                
-                // Detener y resetear auto-scroll
-                isAutoScrolling = false;
-                btnScrollPlay.innerText = "▶";
-                btnScrollPlay.classList.remove('active');
-                autoScrollControls.classList.remove('visible');
-            }
-            
-            if (isListening) stopListeningEngine();
+                // Verificamos si el móvil soporta el menú Nativo de Compartir archivos
+                if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                    try {
+                        await navigator.share({
+                            title: 'Video Teleprompter',
+                            files: [file]
+                        });
+                        showMessage("¡Acción completada!", "info");
+                    } catch (err) {
+                        console.log("Menú compartir cerrado o falló. Forzando descarga directa...");
+                        forceDownload(videoUrl, fileName);
+                    }
+                } else {
+                    // Si estamos en PC o un navegador que no soporta Compartir Nativo
+                    forceDownload(videoUrl, fileName);
+                }
+            };
 
-            toolbar.classList.remove('hidden');
-            floatingStop.classList.remove('visible');
-            textContainer.contentEditable = "true";
+            btnClose.onclick = () => {
+                overlay.classList.add('hidden');
+                videoElem.pause();
+                videoElem.src = "";
+                URL.revokeObjectURL(videoUrl); 
+                showMessage("Lista para nueva grabación.", "info");
+                setTimeout(() => subtitle.classList.add('subtitle-hidden'), 2000);
+            };
         }
-        floatingStop.addEventListener('click', stopAllProcesses);
+
+        function forceDownload(url, name) {
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
 
         // --- RENDERIZADO VISUAL ---
         function drawFrame() {
             if (!isRecordingVideo) return;
             
+            const vw = videoElement.videoWidth;
+            const vh = videoElement.videoHeight;
+            let sourceImage = videoElement;
+
+            if (isBgRemovalActive && segmenter) {
+                if (processCanvas.width !== vw) { processCanvas.width = vw; processCanvas.height = vh; }
+
+                try {
+                    const segResult = segmenter.segmentForVideo(videoElement, performance.now());
+                    
+                    if (segResult.confidenceMasks && segResult.confidenceMasks.length > 0) {
+                        const mask = segResult.confidenceMasks[0];
+                        if (maskCanvas.width !== mask.width) { maskCanvas.width = mask.width; maskCanvas.height = mask.height; }
+                        
+                        const maskData = mask.getAsFloat32Array();
+                        const imgData = maskCtx.createImageData(mask.width, mask.height);
+                        const data = imgData.data;
+                        
+                        for (let i = 0; i < maskData.length; i++) {
+                            data[i * 4] = 255; 
+                            data[i * 4 + 1] = 255;
+                            data[i * 4 + 2] = 255;
+                            data[i * 4 + 3] = maskData[i] > 0.4 ? 255 : 0; 
+                        }
+                        maskCtx.putImageData(imgData, 0, 0);
+
+                        processCtx.clearRect(0, 0, vw, vh);
+                        processCtx.drawImage(maskCanvas, 0, 0, vw, vh); 
+                        processCtx.globalCompositeOperation = 'source-in';
+                        processCtx.drawImage(videoElement, 0, 0, vw, vh);
+                        processCtx.globalCompositeOperation = 'source-over';
+
+                        sourceImage = processCanvas; 
+                    }
+                } catch(e) {}
+            }
+
             ctx.save();
-            ctx.translate(recordingCanvas.width, 0);
+            ctx.clearRect(0, 0, outputWidth, outputHeight);
+
+            if (isBgRemovalActive) {
+                if (bgMedia) {
+                    const bgW = bgMedia.videoWidth || bgMedia.width || outputWidth;
+                    const bgH = bgMedia.videoHeight || bgMedia.height || outputHeight;
+                    const scaleBg = Math.max(outputWidth / bgW, outputHeight / bgH);
+                    const drawW = bgW * scaleBg;
+                    const drawH = bgH * scaleBg;
+                    ctx.drawImage(bgMedia, (outputWidth - drawW)/2, (outputHeight - drawH)/2, drawW, drawH);
+                } else {
+                    ctx.fillStyle = '#00ff00';
+                    ctx.fillRect(0, 0, outputWidth, outputHeight);
+                }
+            }
+
+            const scale = Math.max(outputWidth / vw, outputHeight / vh);
+            const scaledW = vw * scale;
+            const scaledH = vh * scale;
+            const offsetX = (outputWidth - scaledW) / 2;
+            const offsetY = (outputHeight - scaledH) / 2;
+
+            ctx.translate(outputWidth, 0);
             ctx.scale(-1, 1);
-            ctx.drawImage(videoElement, 0, 0, recordingCanvas.width, recordingCanvas.height);
+            ctx.drawImage(sourceImage, -offsetX, offsetY, scaledW, scaledH);
             ctx.restore();
 
             if (isIARecording) {
-                const cx = recordingCanvas.width / 2;
-                const cy = recordingCanvas.height * 0.40;
-                const bw = recordingCanvas.width * 0.45;
-                const bh = recordingCanvas.height * 0.15;
+                const cx = outputWidth / 2;
+                const cy = outputHeight * 0.40;
+                const bw = outputWidth * 0.45;
+                const bh = outputHeight * 0.15;
                 try {
                     const eyeRegion = ctx.getImageData(cx - bw/2, cy - bh/2, bw, bh);
                     ctx.putImageData(eyeRegion, cx - bw/2, (cy - bh/2) - 15);
@@ -558,21 +892,63 @@
                 ctx.setLineDash([]);
             }
             
-            // Subtítulos no disponibles en grabación por limitación de hardware en Android
             animationFrameId = requestAnimationFrame(drawFrame);
         }
+
+        // --- BOTONES INICIALES ---
+        document.getElementById('btn-mic').addEventListener('click', () => {
+            if (startListeningEngine()) {
+                toolbar.classList.add('hidden');
+                floatingStop.classList.add('visible');
+                textContainer.contentEditable = "false";
+            }
+        });
+        document.getElementById('btn-record').addEventListener('click', () => {
+            if (textContainer.innerText.trim() === '') { alert("Pega tu guion."); return; }
+            startVideoRecording(false);
+        });
+        document.getElementById('btn-record-ia').addEventListener('click', () => {
+            if (textContainer.innerText.trim() === '') { alert("Pega tu guion."); return; }
+            startVideoRecording(true);
+        });
+
+        // --- DETENER ---
+        function stopAllProcesses() {
+            if (isRecordingVideo) {
+                isRecordingVideo = false;
+                if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+                cancelAnimationFrame(animationFrameId);
+                const stream = videoElement.srcObject;
+                if (stream) stream.getTracks().forEach(track => track.stop());
+                videoElement.classList.remove('active');
+                
+                isAutoScrolling = false;
+                btnScrollPlay.innerText = "▶";
+                btnScrollPlay.classList.remove('active');
+                autoScrollControls.classList.remove('visible');
+            }
+            if (isListening) stopListeningEngine();
+
+            toolbar.classList.remove('hidden');
+            floatingStop.classList.remove('visible');
+            textContainer.contentEditable = "true";
+        }
+        
+        document.getElementById('floating-stop').addEventListener('click', stopAllProcesses);
 
         // --- EXTRAS ---
         document.getElementById('btn-mirror').addEventListener('click', () => textContainer.classList.toggle('mirrored'));
         document.getElementById('btn-contrast').addEventListener('click', () => document.body.classList.toggle('high-contrast'));
         document.getElementById('btn-focus').addEventListener('click', () => document.getElementById('focus-zone').classList.toggle('hidden'));
         document.getElementById('btn-reset').addEventListener('click', () => { scrollContainer.scrollTo({ top: 0, behavior: 'smooth' }); if (voiceTracker) voiceTracker.currentWordIndex = 0; });
+        
         const btnEnhanceAudio = document.getElementById('btn-enhance-audio');
         btnEnhanceAudio.addEventListener('click', () => {
             useAudioEnhancement = !useAudioEnhancement;
             btnEnhanceAudio.innerText = useAudioEnhancement ? "🎙️ Audio: Studio" : "🎙️ Audio: Normal";
             btnEnhanceAudio.classList.toggle('active-audio', useAudioEnhancement);
         });
+        
         let currentFontSize = 64;
         document.getElementById('btn-font-up').addEventListener('click', () => { currentFontSize = Math.min(140, currentFontSize + 8); textContainer.style.fontSize = `${currentFontSize}px`; });
         document.getElementById('btn-font-down').addEventListener('click', () => { currentFontSize = Math.max(24, currentFontSize - 8); textContainer.style.fontSize = `${currentFontSize}px`; });
