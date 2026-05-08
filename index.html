@@ -243,27 +243,27 @@
     <div id="live-subtitle" class="subtitle-hidden">Esperando tu voz...</div>
 
     <script>
-        /** ALGORITMO VOICE TRACKER - RÁPIDO Y PRECISO */
+        /** ALGORITMO VOICE TRACKER - RÁPIDO Y PURO */
         class VoiceTracker {
             constructor(fullText) {
                 this.scriptWords = this.normalize(fullText).split(/\s+/).filter(w => w.length > 0);
                 this.currentWordIndex = 0;
-                this.searchWindow = 40; 
-                this.nGramSize = 2; // Grupos más pequeños para reaccionar más rápido
+                this.searchWindow = 50; 
+                this.nGramSize = 2; // Grupos más pequeños para reaccionar al instante
             }
 
             normalize(text) {
                 return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ");
             }
 
-            calculateProgress(totalSpoken) {
+            calculateProgress(spokenString) {
                 if (this.scriptWords.length === 0) return 0;
                 
-                const spokenWords = this.normalize(totalSpoken).split(/\s+/).filter(w => w.length > 0);
+                const spokenWords = this.normalize(spokenString).split(/\s+/).filter(w => w.length > 0);
                 if (spokenWords.length < this.nGramSize) return this.getScrollPercentage();
 
                 const recentSpoken = spokenWords.slice(-this.nGramSize);
-                const startIndex = Math.max(0, this.currentWordIndex - 5);
+                const startIndex = Math.max(0, this.currentWordIndex - 8);
                 const endIndex = Math.min(this.scriptWords.length - this.nGramSize, this.currentWordIndex + this.searchWindow);
 
                 let bestMatchIndex = this.currentWordIndex;
@@ -273,14 +273,14 @@
                     const scriptSlice = this.scriptWords.slice(i, i + this.nGramSize);
                     const similarity = this.calculateSimilarity(recentSpoken, scriptSlice);
                     
-                    if (similarity > highestSimilarity && similarity >= 0.5) { // Tolerante
+                    if (similarity > highestSimilarity && similarity >= 0.5) { 
                         highestSimilarity = similarity;
                         bestMatchIndex = i;
                     }
                 }
 
                 if (highestSimilarity >= 0.5) {
-                    this.currentWordIndex = bestMatchIndex + Math.floor(this.nGramSize / 2);
+                    this.currentWordIndex = bestMatchIndex + this.nGramSize;
                 }
                 return this.getScrollPercentage();
             }
@@ -317,12 +317,10 @@
         let isIARecording = false;
         let useAudioEnhancement = false;
         
-        let recognition = null;
         let mediaRecorder = null;
         let recordedChunks = [];
         let animationFrameId = null;
         let currentSubtitleText = "";
-        let finalTranscript = "";
 
         // Limpiar placeholder
         textContainer.addEventListener('focus', function() {
@@ -332,42 +330,32 @@
             }
         });
 
-        // --- SISTEMA DE RECONOCIMIENTO DE VOZ (Carga perezosa) ---
-        function initNativeSpeechIfNeeded() {
-            if (recognition) return true;
+        // --- SISTEMA DE RECONOCIMIENTO DE VOZ SÚPER LIGERO ---
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition = null;
 
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!SpeechRecognition) {
-                alert("Tu navegador no soporta reconocimiento de voz nativo. Usa Chrome.");
-                return false;
-            }
-
+        if (SpeechRecognition) {
             recognition = new SpeechRecognition();
             recognition.continuous = true;
             recognition.interimResults = true;
             recognition.lang = 'es-ES';
 
             recognition.onresult = (event) => {
-                let interimTranscript = '';
-                
+                let currentStr = "";
+                // Acumulamos directamente toda la escucha reciente para evitar cortes
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    if (event.results[i].isFinal) {
-                        finalTranscript += event.results[i][0].transcript + ' ';
-                    } else {
-                        interimTranscript += event.results[i][0].transcript;
-                    }
+                    currentStr += event.results[i][0].transcript;
                 }
                 
-                const totalSpoken = finalTranscript + interimTranscript;
-                currentSubtitleText = interimTranscript || finalTranscript.split(" ").slice(-8).join(" ");
+                currentSubtitleText = currentStr.trim();
                 
-                if (currentSubtitleText.trim() !== '') {
+                if (currentSubtitleText !== '') {
                     subtitle.innerText = currentSubtitleText;
                     subtitle.classList.remove('subtitle-hidden', 'subtitle-error');
     
-                    if (voiceTracker && totalSpoken.trim() !== '') {
-                        const progress = voiceTracker.calculateProgress(totalSpoken);
-                        const maxScroll = textContainer.scrollHeight - scrollContainer.clientHeight;
+                    if (voiceTracker) {
+                        const progress = voiceTracker.calculateProgress(currentSubtitleText);
+                        const maxScroll = scrollContainer.scrollHeight - scrollContainer.clientHeight;
                         
                         if (maxScroll > 0) {
                             scrollContainer.scrollTo({ top: maxScroll * progress, behavior: 'smooth' });
@@ -377,45 +365,35 @@
             };
 
             recognition.onerror = (event) => {
-                console.error("Error de voz:", event.error);
                 if (event.error !== 'no-speech') {
-                    subtitle.innerText = "Error micrófono: " + event.error;
-                    subtitle.classList.remove('subtitle-hidden');
-                    subtitle.classList.add('subtitle-error');
+                    console.warn("Error voz:", event.error);
                 }
             };
 
             recognition.onend = () => {
+                // Auto-reconectar la escucha si se apagó y no hemos tocado Stop
                 if (isListening) {
-                    setTimeout(() => {
-                        try { recognition.start(); } catch(e) {}
-                    }, 300); // Previene bloqueos por reinicios demasiado rápidos
+                    try { recognition.start(); } catch(e) {}
                 }
             };
-
-            return true;
         }
 
         function startListeningEngine() {
+            if (!recognition) {
+                alert("Tu navegador no soporta reconocimiento de voz nativo. Usa Chrome o Safari.");
+                return false;
+            }
             if (textContainer.innerText.trim() === '') {
                 alert("Primero pega o escribe un guion.");
                 return false;
             }
             
-            if (!initNativeSpeechIfNeeded()) return false;
-            
-            finalTranscript = "";
             voiceTracker = new VoiceTracker(textContainer.innerText);
-            
-            try {
-                recognition.start();
-            } catch (e) {
-                console.log("El micrófono ya estaba atento");
-            }
-            
             isListening = true;
             subtitle.classList.remove('subtitle-error', 'subtitle-hidden');
             subtitle.innerText = "Te escucho...";
+            
+            try { recognition.start(); } catch (e) { }
             return true;
         }
 
@@ -434,6 +412,8 @@
                 videoElement.classList.add('active');
                 
                 videoElement.onloadedmetadata = () => {
+                    videoElement.play().catch(e=>console.log(e));
+                    
                     recordingCanvas.width = videoElement.videoWidth;
                     recordingCanvas.height = videoElement.videoHeight;
                     isRecordingVideo = true;
@@ -491,7 +471,6 @@
                 subtitle.classList.remove('subtitle-hidden');
                 subtitle.classList.add('subtitle-error');
                 
-                // Restaurar la interfaz si falló la activación
                 toolbar.classList.remove('hidden');
                 floatingStop.classList.remove('visible');
                 textContainer.contentEditable = "true";
@@ -499,7 +478,7 @@
         }
 
         // --- EVENTOS PRINCIPALES DE BOTONES ---
-        // ¡Se inician de forma SÍNCRONA con el clic del usuario para que el micrófono no sea bloqueado!
+        // Se inician al mismo tiempo la voz y el video para respetar la seguridad del navegador
         
         document.getElementById('btn-mic').addEventListener('click', () => {
             if (startListeningEngine()) {
@@ -515,15 +494,12 @@
                 return;
             }
             
-            // 1. Iniciamos la VOZ SÍNCRONAMENTE en el mismo milisegundo del clic
-            if (!isListening) startListeningEngine();
-            
-            // 2. Preparamos la UI
             toolbar.classList.add('hidden');
             floatingStop.classList.add('visible');
             textContainer.contentEditable = "false";
             
-            // 3. Encendemos el VIDEO
+            // Iniciamos ambos sistemas inmediatamente
+            startListeningEngine();
             startVideoRecording(false);
         });
 
@@ -533,15 +509,12 @@
                 return;
             }
             
-            // 1. Iniciamos la VOZ SÍNCRONAMENTE en el mismo milisegundo del clic
-            if (!isListening) startListeningEngine();
-            
-            // 2. Preparamos la UI
             toolbar.classList.add('hidden');
             floatingStop.classList.add('visible');
             textContainer.contentEditable = "false";
             
-            // 3. Encendemos el VIDEO
+            // Iniciamos ambos sistemas inmediatamente
+            startListeningEngine();
             startVideoRecording(true);
         });
 
