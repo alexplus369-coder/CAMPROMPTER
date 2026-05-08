@@ -116,7 +116,6 @@
             transition: opacity 0.3s;
         }
         .subtitle-hidden { opacity: 0; }
-        .subtitle-error { color: #ef4444 !important; border-color: #ef4444 !important; }
 
         /* --- Estilos de Cámara --- */
         #camera-feed {
@@ -243,23 +242,29 @@
     <div id="live-subtitle" class="subtitle-hidden">Esperando tu voz...</div>
 
     <script>
-        /** ALGORITMO VOICE TRACKER - RÁPIDO Y PRECISO */
+        /** ALGORITMO VOICE TRACKER (MEJORADO) */
         class VoiceTracker {
             constructor(fullText) {
-                this.scriptWords = this.normalize(fullText).split(/\s+/).filter(w => w.length > 0);
+                this.scriptWords = this.normalize(fullText).split(" ").filter(w => w.length > 0);
                 this.currentWordIndex = 0;
-                this.searchWindow = 35; 
-                this.nGramSize = 2; // Grupos más pequeños para reaccionar más rápido
+                this.searchWindow = 25;
+                this.nGramSize = 3;
+                this.similarityThreshold = 0.35; // Antes 0.66, ahora más permisivo
             }
 
             normalize(text) {
-                return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ");
+                // Simplifica pero conserva más estructura
+                return text.toLowerCase()
+                    .normalize("NFD")
+                    .replace(/[\u0300-\u036f]/g, "") // quitar tildes
+                    .replace(/[^a-z0-9 áéíóúüñ]/g, " ") // permitir letras con tilde? mejor quitarlas todas
+                    .replace(/\s+/g, " ")
+                    .trim();
             }
 
-            calculateProgress(totalSpoken) {
+            calculateProgress(partialSpoken) {
                 if (this.scriptWords.length === 0) return 0;
-                
-                const spokenWords = this.normalize(totalSpoken).split(/\s+/).filter(w => w.length > 0);
+                const spokenWords = this.normalize(partialSpoken).split(" ").filter(w => w.length > 0);
                 if (spokenWords.length < this.nGramSize) return this.getScrollPercentage();
 
                 const recentSpoken = spokenWords.slice(-this.nGramSize);
@@ -272,14 +277,14 @@
                 for (let i = startIndex; i <= endIndex; i++) {
                     const scriptSlice = this.scriptWords.slice(i, i + this.nGramSize);
                     const similarity = this.calculateSimilarity(recentSpoken, scriptSlice);
-                    
-                    if (similarity > highestSimilarity && similarity >= 0.5) { // Tolerante
+                    if (similarity > highestSimilarity && similarity >= this.similarityThreshold) {
                         highestSimilarity = similarity;
                         bestMatchIndex = i;
                     }
                 }
 
-                if (highestSimilarity >= 0.5) {
+                // Si se supera el umbral (ahora más bajo), actualizar el índice
+                if (highestSimilarity >= this.similarityThreshold) {
                     this.currentWordIndex = bestMatchIndex + Math.floor(this.nGramSize / 2);
                 }
                 return this.getScrollPercentage();
@@ -310,7 +315,7 @@
         const recordingCanvas = document.getElementById('recording-canvas');
         const ctx = recordingCanvas.getContext('2d');
 
-        // Variables de Estado
+        // Variables de Estado Globals
         let voiceTracker = null;
         let isListening = false;
         let isRecordingVideo = false;
@@ -322,9 +327,8 @@
         let recordedChunks = [];
         let animationFrameId = null;
         let currentSubtitleText = "";
-        let finalTranscript = "";
 
-        // Limpiar placeholder
+        // Limpiar placeholder al hacer clic
         textContainer.addEventListener('focus', function() {
             if (this.classList.contains('placeholder')) {
                 this.innerHTML = '';
@@ -332,16 +336,13 @@
             }
         });
 
-        // --- SISTEMA DE RECONOCIMIENTO DE VOZ (Carga perezosa) ---
-        function initNativeSpeechIfNeeded() {
-            if (recognition) return true;
-
+        // --- SISTEMA DE RECONOCIMIENTO DE VOZ (CON MANEJO DE ERRORES) ---
+        function initNativeSpeech() {
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (!SpeechRecognition) {
-                alert("Tu navegador no soporta reconocimiento de voz nativo. Usa Chrome.");
+                alert("Tu navegador no soporta el reconocimiento de voz nativo. Usa Chrome o Edge.");
                 return false;
             }
-
             recognition = new SpeechRecognition();
             recognition.continuous = true;
             recognition.interimResults = true;
@@ -349,47 +350,52 @@
 
             recognition.onresult = (event) => {
                 let interimTranscript = '';
-                
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    if (event.results[i].isFinal) {
-                        finalTranscript += event.results[i][0].transcript + ' ';
-                    } else {
-                        interimTranscript += event.results[i][0].transcript;
-                    }
+                    interimTranscript += event.results[i][0].transcript;
                 }
-                
-                const totalSpoken = finalTranscript + interimTranscript;
-                currentSubtitleText = interimTranscript || finalTranscript.split(" ").slice(-8).join(" ");
-                
-                if (currentSubtitleText.trim() !== '') {
-                    subtitle.innerText = currentSubtitleText;
-                    subtitle.classList.remove('subtitle-hidden', 'subtitle-error');
-    
-                    if (voiceTracker && totalSpoken.trim() !== '') {
-                        const progress = voiceTracker.calculateProgress(totalSpoken);
-                        const maxScroll = scrollContainer.scrollHeight - scrollContainer.clientHeight;
-                        
-                        if (maxScroll > 0) {
-                            scrollContainer.scrollTo({ top: maxScroll * progress, behavior: 'smooth' });
-                        }
+                currentSubtitleText = interimTranscript;
+                subtitle.innerText = interimTranscript;
+                subtitle.classList.remove('subtitle-hidden');
+
+                if (voiceTracker && interimTranscript.trim() !== '') {
+                    const progress = voiceTracker.calculateProgress(interimTranscript);
+                    const maxScroll = textContainer.scrollHeight - scrollContainer.clientHeight;
+                    if (maxScroll > 0) {
+                        scrollContainer.scrollTo({ top: maxScroll * progress, behavior: 'smooth' });
                     }
                 }
             };
 
             recognition.onerror = (event) => {
-                console.error("Error de voz:", event.error);
-                if (event.error !== 'no-speech') {
-                    subtitle.innerText = "Error micrófono: " + event.error;
-                    subtitle.classList.remove('subtitle-hidden');
-                    subtitle.classList.add('subtitle-error');
+                console.error('Error de reconocimiento de voz:', event.error);
+                // Mostrar error al usuario
+                switch (event.error) {
+                    case 'not-allowed':
+                        alert('Permiso de micrófono denegado. Ve a la configuración de tu navegador y permite el acceso al micrófono.');
+                        break;
+                    case 'audio-capture':
+                        alert('No se detectó ningún micrófono. Conecta uno y vuelve a intentarlo.');
+                        break;
+                    case 'network':
+                        alert('Error de red. El reconocimiento de voz necesita conexión a internet.');
+                        break;
+                    default:
+                        alert('Error en el reconocimiento de voz: ' + event.error);
                 }
+                // Detener todo porque no se puede continuar sin micrófono
+                stopAllProcesses();
             };
 
             recognition.onend = () => {
+                // Solo reiniciar si todavía estamos en modo escucha
                 if (isListening) {
-                    setTimeout(() => {
-                        try { recognition.start(); } catch(e) {}
-                    }, 300); // Previene bloqueos por reinicios demasiado rápidos
+                    try {
+                        recognition.start();
+                    } catch (e) {
+                        console.warn('Error al reiniciar recognition:', e);
+                        // Si falla, detener todo
+                        stopAllProcesses();
+                    }
                 }
             };
 
@@ -401,27 +407,37 @@
                 alert("Primero pega o escribe un guion.");
                 return false;
             }
+
+            // Si ya está escuchando, parar primero para evitar conflictos
+            if (isListening) {
+                stopListeningEngine();
+            }
+
+            if (!recognition && !initNativeSpeech()) return false;
             
-            if (!initNativeSpeechIfNeeded()) return false;
-            
-            finalTranscript = "";
+            // Crear un nuevo tracker con el texto actual
             voiceTracker = new VoiceTracker(textContainer.innerText);
             
             try {
                 recognition.start();
-            } catch (e) {
-                console.log("El micrófono ya estaba atento");
+                isListening = true;
+                subtitle.classList.remove('subtitle-hidden');
+                subtitle.innerText = "Te escucho...";
+                return true;
+            } catch (err) {
+                console.error('Error al iniciar el reconocimiento:', err);
+                alert('No se pudo iniciar el micrófono. Recarga la página y vuelve a intentarlo.');
+                return false;
             }
-            
-            isListening = true;
-            subtitle.classList.remove('subtitle-error', 'subtitle-hidden');
-            subtitle.innerText = "Te escucho...";
-            return true;
         }
 
         function stopListeningEngine() {
             isListening = false;
-            if (recognition) recognition.stop();
+            if (recognition) {
+                try {
+                    recognition.stop();
+                } catch (e) { /* ignorar */ }
+            }
             subtitle.classList.add('subtitle-hidden');
             currentSubtitleText = "";
         }
@@ -440,7 +456,7 @@
                     isIARecording = useIA;
                     recordedChunks = [];
                     
-                    drawFrame(); 
+                    drawFrame();
 
                     let finalAudioStream = stream;
                     if (useAudioEnhancement) {
@@ -448,10 +464,17 @@
                         const source = audioCtx.createMediaStreamSource(stream);
                         const destination = audioCtx.createMediaStreamDestination();
 
-                        const highpass = audioCtx.createBiquadFilter(); highpass.type = 'highpass'; highpass.frequency.value = 85;
-                        const eqLowMid = audioCtx.createBiquadFilter(); eqLowMid.type = 'peaking'; eqLowMid.frequency.value = 400; eqLowMid.Q.value = 1; eqLowMid.gain.value = -4;
-                        const eqPresence = audioCtx.createBiquadFilter(); eqPresence.type = 'peaking'; eqPresence.frequency.value = 4000; eqPresence.Q.value = 1; eqPresence.gain.value = 5;
-                        const compressor = audioCtx.createDynamicsCompressor(); compressor.threshold.value = -24; compressor.ratio.value = 4;
+                        const highpass = audioCtx.createBiquadFilter();
+                        highpass.type = 'highpass'; highpass.frequency.value = 85;
+
+                        const eqLowMid = audioCtx.createBiquadFilter();
+                        eqLowMid.type = 'peaking'; eqLowMid.frequency.value = 400; eqLowMid.Q.value = 1; eqLowMid.gain.value = -4;
+
+                        const eqPresence = audioCtx.createBiquadFilter();
+                        eqPresence.type = 'peaking'; eqPresence.frequency.value = 4000; eqPresence.Q.value = 1; eqPresence.gain.value = 5;
+
+                        const compressor = audioCtx.createDynamicsCompressor();
+                        compressor.threshold.value = -24; compressor.ratio.value = 4;
 
                         source.connect(highpass); highpass.connect(eqLowMid);
                         eqLowMid.connect(eqPresence); eqPresence.connect(compressor);
@@ -467,86 +490,32 @@
                     mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
                     
                     mediaRecorder.onstop = () => {
-                        if (recordedChunks.length === 0) return;
                         const blob = new Blob(recordedChunks, { type: 'video/webm' });
                         const url = URL.createObjectURL(blob);
-                        
                         const a = document.createElement('a');
-                        a.style.display = 'none';
                         a.href = url;
                         a.download = isIARecording ? 'Teleprompter_IA_Studio.webm' : 'Teleprompter_Video.webm';
-                        document.body.appendChild(a);
                         a.click();
-                        setTimeout(() => {
-                            document.body.removeChild(a);
-                            URL.revokeObjectURL(url);
-                        }, 100);
+                        URL.revokeObjectURL(url);
                     };
 
                     mediaRecorder.start();
+                    
+                    // Iniciar el teleprompter por voz si no está ya activo
+                    if (!isListening) startListeningEngine();
+                    
+                    toolbar.classList.add('hidden');
+                    floatingStop.classList.add('visible');
+                    textContainer.contentEditable = "false";
                 };
             } catch (err) {
                 console.error("Error de cámara/micrófono:", err);
-                subtitle.innerText = "Error: Cámara o micrófono bloqueado.";
-                subtitle.classList.remove('subtitle-hidden');
-                subtitle.classList.add('subtitle-error');
-                
-                // Restaurar la interfaz si falló la activación
-                toolbar.classList.remove('hidden');
-                floatingStop.classList.remove('visible');
-                textContainer.contentEditable = "true";
+                alert("Asegúrate de dar permisos de Cámara y Micrófono al navegador.");
             }
         }
 
-        // --- EVENTOS PRINCIPALES DE BOTONES ---
-        // ¡Se inician de forma SÍNCRONA con el clic del usuario para que el micrófono no sea bloqueado!
-        
-        document.getElementById('btn-mic').addEventListener('click', () => {
-            if (startListeningEngine()) {
-                toolbar.classList.add('hidden');
-                floatingStop.classList.add('visible');
-                textContainer.contentEditable = "false";
-            }
-        });
-
-        document.getElementById('btn-record').addEventListener('click', () => {
-            if (textContainer.innerText.trim() === '') {
-                alert("Primero pega o escribe un guion.");
-                return;
-            }
-            
-            // 1. Iniciamos la VOZ SÍNCRONAMENTE en el mismo milisegundo del clic
-            if (!isListening) startListeningEngine();
-            
-            // 2. Preparamos la UI
-            toolbar.classList.add('hidden');
-            floatingStop.classList.add('visible');
-            textContainer.contentEditable = "false";
-            
-            // 3. Encendemos el VIDEO
-            startVideoRecording(false);
-        });
-
-        document.getElementById('btn-record-ia').addEventListener('click', () => {
-            if (textContainer.innerText.trim() === '') {
-                alert("Primero pega o escribe un guion.");
-                return;
-            }
-            
-            // 1. Iniciamos la VOZ SÍNCRONAMENTE en el mismo milisegundo del clic
-            if (!isListening) startListeningEngine();
-            
-            // 2. Preparamos la UI
-            toolbar.classList.add('hidden');
-            floatingStop.classList.add('visible');
-            textContainer.contentEditable = "false";
-            
-            // 3. Encendemos el VIDEO
-            startVideoRecording(true);
-        });
-
-        // --- DETENER TODO (BOTÓN FLOTANTE) ---
         function stopAllProcesses() {
+            // 1. Detener Video
             if (isRecordingVideo) {
                 isRecordingVideo = false;
                 if (mediaRecorder && mediaRecorder.state !== 'inactive') {
@@ -558,15 +527,16 @@
                 videoElement.classList.remove('active');
             }
             
+            // 2. Detener Voz
             if (isListening) {
                 stopListeningEngine();
             }
 
+            // 3. Restaurar Interfaz
             toolbar.classList.remove('hidden');
             floatingStop.classList.remove('visible');
             textContainer.contentEditable = "true";
         }
-        floatingStop.addEventListener('click', stopAllProcesses);
 
         // --- RENDERIZADO VISUAL EN CANVAS ---
         function drawFrame() {
@@ -608,6 +578,20 @@
             }
             animationFrameId = requestAnimationFrame(drawFrame);
         }
+
+        // --- EVENTOS DE BOTONES ---
+        document.getElementById('btn-record').addEventListener('click', () => startVideoRecording(false));
+        document.getElementById('btn-record-ia').addEventListener('click', () => startVideoRecording(true));
+        
+        document.getElementById('btn-mic').addEventListener('click', () => {
+            if (startListeningEngine()) {
+                toolbar.classList.add('hidden');
+                floatingStop.classList.add('visible');
+                textContainer.contentEditable = "false";
+            }
+        });
+
+        floatingStop.addEventListener('click', stopAllProcesses);
 
         // --- HERRAMIENTAS ADICIONALES ---
         document.getElementById('btn-mirror').addEventListener('click', () => textContainer.classList.toggle('mirrored'));
