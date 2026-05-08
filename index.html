@@ -66,7 +66,6 @@
         button:hover { background-color: #2563eb; }
         button:active { transform: scale(0.95); }
         
-        /* Estilos específicos de botones */
         #btn-record-ia { background-color: #8b5cf6; }
         #btn-record-ia:hover { background-color: #7c3aed; }
         .active-audio { background-color: #f59e0b !important; }
@@ -78,7 +77,7 @@
             scroll-behavior: smooth;
             padding: 0 10%;
             scrollbar-width: none;
-            background: rgba(15, 23, 42, 0.5); /* Semi-transparente para ver cámara */
+            background: rgba(15, 23, 42, 0.5);
         }
         #scroll-container::-webkit-scrollbar { display: none; }
 
@@ -183,10 +182,7 @@
             pointer-events: none;
             animation: pulse-stop 2s infinite;
         }
-        #floating-stop.visible {
-            opacity: 1;
-            pointer-events: auto;
-        }
+        #floating-stop.visible { opacity: 1; pointer-events: auto; }
         #floating-stop:hover { transform: scale(1.1); }
 
         @keyframes pulse-stop {
@@ -194,17 +190,47 @@
             70% { box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); }
             100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
         }
+
+        /* --- CONTROLES DE AUTO-SCROLL (NUEVO) --- */
+        #auto-scroll-controls {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(30, 41, 59, 0.9);
+            padding: 10px 20px;
+            border-radius: 25px;
+            display: flex;
+            gap: 15px;
+            z-index: 200;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        #auto-scroll-controls.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .scroll-btn {
+            background: transparent;
+            color: white;
+            font-size: 24px;
+            padding: 5px 15px;
+            border: 2px solid #3b82f6;
+            border-radius: 20px;
+        }
+        .scroll-btn.play { background: #3b82f6; }
+        .scroll-btn.play.active { background: #10b981; border-color: #10b981; }
     </style>
 </head>
 <body>
 
-    <!-- Elementos Ocultos -->
     <video id="camera-feed" autoplay muted playsinline></video>
     <canvas id="recording-canvas" style="display: none;"></canvas>
 
-    <!-- Panel de Controles -->
     <div id="toolbar">
-        <button id="btn-record" title="Grabar Video Normal">
+        <button id="btn-record" title="Grabar Video">
             <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="M8 13A5 5 0 1 1 8 3a5 5 0 0 1 0 10z"/><path d="M8 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg>
             Grabar Video
         </button>
@@ -214,7 +240,7 @@
         </button>
         <button id="btn-mic" title="Solo mover el texto (Sin grabar)">
             <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0V3z"/><path d="M3.5 6.5A.5.5 0 0 1 4 7v1a4 4 0 0 0 8 0V7a.5.5 0 0 1 1 0v1a5 5 0 0 1-4.5 4.975V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 .5-.5z"/></svg>
-            Solo Voz
+            Solo Voz (IA)
         </button>
         <button id="btn-mirror">🪞 Espejo</button>
         <button id="btn-enhance-audio" title="Filtro de Audio Studio">🎙️ Audio: Normal</button>
@@ -225,74 +251,57 @@
         <button id="btn-reset">↺ Arriba</button>
     </div>
 
-    <!-- Botón Flotante para Detener -->
     <button id="floating-stop" title="Detener Grabación o Escucha">⏹</button>
 
-    <!-- Área de Texto -->
+    <!-- Controles de Auto-Scroll para Grabación de Video -->
+    <div id="auto-scroll-controls">
+        <button id="btn-scroll-slower" class="scroll-btn">🐢</button>
+        <button id="btn-scroll-play" class="scroll-btn play">▶</button>
+        <button id="btn-scroll-faster" class="scroll-btn">🐇</button>
+    </div>
+
     <div id="scroll-container">
         <div id="teleprompter-text" contenteditable="true" class="placeholder">
             Haz clic aquí y pega tu guion. <br><br>
-            Asegúrate de dar permisos de cámara y micrófono. <br>Puedes grabar video, usar la IA visual, o simplemente usar 'Solo Voz' para practicar.
+            Asegúrate de dar permisos de cámara y micrófono. <br>Puedes grabar video, usar la IA visual, o usar 'Solo Voz' para practicar.
         </div>
     </div>
 
-    <!-- Zona de Enfoque Visual -->
     <div id="focus-zone" class="hidden"></div>
-
-    <!-- Subtítulos -->
     <div id="live-subtitle" class="subtitle-hidden">Esperando tu voz...</div>
 
     <script>
-        /** ALGORITMO VOICE TRACKER - RÁPIDO Y PURO */
+        /** ALGORITMO VOICE TRACKER - RÁPIDO Y PURO (Solo Voz) */
         class VoiceTracker {
             constructor(fullText) {
                 this.scriptWords = this.normalize(fullText).split(/\s+/).filter(w => w.length > 0);
                 this.currentWordIndex = 0;
                 this.searchWindow = 50; 
-                this.nGramSize = 2; // Grupos más pequeños para reaccionar al instante
+                this.nGramSize = 2; 
             }
-
-            normalize(text) {
-                return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ");
-            }
-
+            normalize(text) { return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " "); }
             calculateProgress(spokenString) {
                 if (this.scriptWords.length === 0) return 0;
-                
                 const spokenWords = this.normalize(spokenString).split(/\s+/).filter(w => w.length > 0);
                 if (spokenWords.length < this.nGramSize) return this.getScrollPercentage();
-
                 const recentSpoken = spokenWords.slice(-this.nGramSize);
                 const startIndex = Math.max(0, this.currentWordIndex - 8);
                 const endIndex = Math.min(this.scriptWords.length - this.nGramSize, this.currentWordIndex + this.searchWindow);
-
                 let bestMatchIndex = this.currentWordIndex;
                 let highestSimilarity = 0.0;
-
                 for (let i = startIndex; i <= endIndex; i++) {
                     const scriptSlice = this.scriptWords.slice(i, i + this.nGramSize);
-                    const similarity = this.calculateSimilarity(recentSpoken, scriptSlice);
-                    
+                    let matches = 0;
+                    for (let j = 0; j < recentSpoken.length; j++) if (recentSpoken[j] === scriptSlice[j]) matches++;
+                    const similarity = matches / recentSpoken.length;
                     if (similarity > highestSimilarity && similarity >= 0.5) { 
                         highestSimilarity = similarity;
                         bestMatchIndex = i;
                     }
                 }
-
-                if (highestSimilarity >= 0.5) {
-                    this.currentWordIndex = bestMatchIndex + this.nGramSize;
-                }
+                if (highestSimilarity >= 0.5) this.currentWordIndex = bestMatchIndex + this.nGramSize;
                 return this.getScrollPercentage();
             }
-
-            calculateSimilarity(spoken, scriptSlice) {
-                let matches = 0;
-                for (let j = 0; j < spoken.length; j++) {
-                    if (spoken[j] === scriptSlice[j]) matches++;
-                }
-                return matches / spoken.length;
-            }
-
             getScrollPercentage() {
                 if (this.scriptWords.length === 0) return 0;
                 return Math.max(0, Math.min(1, this.currentWordIndex / this.scriptWords.length));
@@ -305,6 +314,7 @@
         const subtitle = document.getElementById('live-subtitle');
         const toolbar = document.getElementById('toolbar');
         const floatingStop = document.getElementById('floating-stop');
+        const autoScrollControls = document.getElementById('auto-scroll-controls');
         
         const videoElement = document.getElementById('camera-feed');
         const recordingCanvas = document.getElementById('recording-canvas');
@@ -317,12 +327,17 @@
         let isIARecording = false;
         let useAudioEnhancement = false;
         
+        let recognition = null;
         let mediaRecorder = null;
         let recordedChunks = [];
         let animationFrameId = null;
         let currentSubtitleText = "";
 
-        // Limpiar placeholder
+        // Variables Auto-Scroll
+        let autoScrollInterval = null;
+        let isAutoScrolling = false;
+        let scrollSpeed = 1.5; // Píxeles por frame
+
         textContainer.addEventListener('focus', function() {
             if (this.classList.contains('placeholder')) {
                 this.innerHTML = '';
@@ -330,10 +345,8 @@
             }
         });
 
-        // --- SISTEMA DE RECONOCIMIENTO DE VOZ SÚPER LIGERO ---
+        // --- SISTEMA DE RECONOCIMIENTO DE VOZ NATIVO (Modo: Solo Voz) ---
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        let recognition = null;
-
         if (SpeechRecognition) {
             recognition = new SpeechRecognition();
             recognition.continuous = true;
@@ -342,11 +355,7 @@
 
             recognition.onresult = (event) => {
                 let currentStr = "";
-                // Acumulamos directamente toda la escucha reciente para evitar cortes
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    currentStr += event.results[i][0].transcript;
-                }
-                
+                for (let i = event.resultIndex; i < event.results.length; ++i) currentStr += event.results[i][0].transcript;
                 currentSubtitleText = currentStr.trim();
                 
                 if (currentSubtitleText !== '') {
@@ -356,43 +365,22 @@
                     if (voiceTracker) {
                         const progress = voiceTracker.calculateProgress(currentSubtitleText);
                         const maxScroll = scrollContainer.scrollHeight - scrollContainer.clientHeight;
-                        
-                        if (maxScroll > 0) {
-                            scrollContainer.scrollTo({ top: maxScroll * progress, behavior: 'smooth' });
-                        }
+                        if (maxScroll > 0) scrollContainer.scrollTo({ top: maxScroll * progress, behavior: 'smooth' });
                     }
                 }
             };
-
-            recognition.onerror = (event) => {
-                if (event.error !== 'no-speech') {
-                    console.warn("Error voz:", event.error);
-                }
-            };
-
-            recognition.onend = () => {
-                // Auto-reconectar la escucha si se apagó y no hemos tocado Stop
-                if (isListening) {
-                    try { recognition.start(); } catch(e) {}
-                }
-            };
+            recognition.onerror = (event) => { if (event.error !== 'no-speech') console.warn("Error voz:", event.error); };
+            recognition.onend = () => { if (isListening) try { recognition.start(); } catch(e) {} };
         }
 
         function startListeningEngine() {
-            if (!recognition) {
-                alert("Tu navegador no soporta reconocimiento de voz nativo. Usa Chrome o Safari.");
-                return false;
-            }
-            if (textContainer.innerText.trim() === '') {
-                alert("Primero pega o escribe un guion.");
-                return false;
-            }
+            if (!recognition) { alert("Navegador no soporta IA de voz."); return false; }
+            if (textContainer.innerText.trim() === '') { alert("Pega tu guion primero."); return false; }
             
             voiceTracker = new VoiceTracker(textContainer.innerText);
             isListening = true;
             subtitle.classList.remove('subtitle-error', 'subtitle-hidden');
-            subtitle.innerText = "Te escucho...";
-            
+            subtitle.innerText = "Te escucho (IA Activa)...";
             try { recognition.start(); } catch (e) { }
             return true;
         }
@@ -404,10 +392,35 @@
             currentSubtitleText = "";
         }
 
+        // --- SISTEMA AUTO-SCROLL (Para modo Video) ---
+        function performAutoScroll() {
+            if (isAutoScrolling) {
+                // Comportamiento suave fluido independientemente del dispositivo
+                scrollContainer.scrollBy({ top: scrollSpeed, behavior: 'instant' }); 
+                requestAnimationFrame(performAutoScroll);
+            }
+        }
+
+        const btnScrollPlay = document.getElementById('btn-scroll-play');
+        btnScrollPlay.addEventListener('click', () => {
+            isAutoScrolling = !isAutoScrolling;
+            if (isAutoScrolling) {
+                btnScrollPlay.innerText = "⏸";
+                btnScrollPlay.classList.add('active');
+                performAutoScroll();
+            } else {
+                btnScrollPlay.innerText = "▶";
+                btnScrollPlay.classList.remove('active');
+            }
+        });
+
+        document.getElementById('btn-scroll-slower').addEventListener('click', () => { scrollSpeed = Math.max(0.5, scrollSpeed - 0.5); });
+        document.getElementById('btn-scroll-faster').addEventListener('click', () => { scrollSpeed = Math.min(5.0, scrollSpeed + 0.5); });
+
         // --- SISTEMA DE GRABACIÓN DE VIDEO ---
         async function startVideoRecording(useIA) {
             try {
-                // Asegurar que capturemos audio junto con el video
+                // Almacenamos el audio y video en una sola llamada firme, el micrófono es solo del video
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: true });
                 videoElement.srcObject = stream;
                 videoElement.classList.add('active');
@@ -428,12 +441,10 @@
                         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                         const source = audioCtx.createMediaStreamSource(stream);
                         const destination = audioCtx.createMediaStreamDestination();
-
                         const highpass = audioCtx.createBiquadFilter(); highpass.type = 'highpass'; highpass.frequency.value = 85;
                         const eqLowMid = audioCtx.createBiquadFilter(); eqLowMid.type = 'peaking'; eqLowMid.frequency.value = 400; eqLowMid.Q.value = 1; eqLowMid.gain.value = -4;
                         const eqPresence = audioCtx.createBiquadFilter(); eqPresence.type = 'peaking'; eqPresence.frequency.value = 4000; eqPresence.Q.value = 1; eqPresence.gain.value = 5;
                         const compressor = audioCtx.createDynamicsCompressor(); compressor.threshold.value = -24; compressor.ratio.value = 4;
-
                         source.connect(highpass); highpass.connect(eqLowMid);
                         eqLowMid.connect(eqPresence); eqPresence.connect(compressor);
                         compressor.connect(destination);
@@ -441,7 +452,6 @@
                     }
 
                     const canvasStream = recordingCanvas.captureStream(30);
-                    // Asegurarnos de usar las pistas de audio y video
                     const tracks = [...canvasStream.getVideoTracks(), ...finalAudioStream.getAudioTracks()];
                     const combinedStream = new MediaStream(tracks);
 
@@ -459,31 +469,24 @@
                         a.download = isIARecording ? 'Teleprompter_IA_Studio.webm' : 'Teleprompter_Video.webm';
                         document.body.appendChild(a);
                         a.click();
-                        setTimeout(() => {
-                            document.body.removeChild(a);
-                            URL.revokeObjectURL(url);
-                        }, 100);
+                        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
                     };
 
                     mediaRecorder.start();
-                    // Iniciar la escucha DESPUÉS de que la cámara se cargue para no interrumpir el flujo de audio
-                    startListeningEngine();
+
+                    // UI para Modo Video
+                    toolbar.classList.add('hidden');
+                    floatingStop.classList.add('visible');
+                    autoScrollControls.classList.add('visible'); // Mostrar controles de velocidad manual
+                    textContainer.contentEditable = "false";
                 };
             } catch (err) {
-                console.error("Error de cámara/micrófono:", err);
-                subtitle.innerText = "Error: Cámara o micrófono bloqueado.";
-                subtitle.classList.remove('subtitle-hidden');
-                subtitle.classList.add('subtitle-error');
-                
+                alert("Asegúrate de dar permisos de cámara y micrófono.");
                 toolbar.classList.remove('hidden');
-                floatingStop.classList.remove('visible');
-                textContainer.contentEditable = "true";
             }
         }
 
-        // --- EVENTOS PRINCIPALES DE BOTONES ---
-        // Se inician al mismo tiempo la voz y el video para respetar la seguridad del navegador
-        
+        // --- EVENTOS PRINCIPALES ---
         document.getElementById('btn-mic').addEventListener('click', () => {
             if (startListeningEngine()) {
                 toolbar.classList.add('hidden');
@@ -493,49 +496,33 @@
         });
 
         document.getElementById('btn-record').addEventListener('click', () => {
-            if (textContainer.innerText.trim() === '') {
-                alert("Primero pega o escribe un guion.");
-                return;
-            }
-            
-            toolbar.classList.add('hidden');
-            floatingStop.classList.add('visible');
-            textContainer.contentEditable = "false";
-            
-            // Iniciamos solo la grabación, y la grabación iniciará la escucha una vez que tenga el flujo de audio
+            if (textContainer.innerText.trim() === '') { alert("Pega tu guion."); return; }
             startVideoRecording(false);
         });
 
         document.getElementById('btn-record-ia').addEventListener('click', () => {
-            if (textContainer.innerText.trim() === '') {
-                alert("Primero pega o escribe un guion.");
-                return;
-            }
-            
-            toolbar.classList.add('hidden');
-            floatingStop.classList.add('visible');
-            textContainer.contentEditable = "false";
-            
-            // Iniciamos solo la grabación, y la grabación iniciará la escucha una vez que tenga el flujo de audio
+            if (textContainer.innerText.trim() === '') { alert("Pega tu guion."); return; }
             startVideoRecording(true);
         });
 
-        // --- DETENER TODO (BOTÓN FLOTANTE) ---
+        // --- DETENER TODO ---
         function stopAllProcesses() {
             if (isRecordingVideo) {
                 isRecordingVideo = false;
-                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                    mediaRecorder.stop();
-                }
+                if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
                 cancelAnimationFrame(animationFrameId);
                 const stream = videoElement.srcObject;
                 if (stream) stream.getTracks().forEach(track => track.stop());
                 videoElement.classList.remove('active');
+                
+                // Detener y resetear auto-scroll
+                isAutoScrolling = false;
+                btnScrollPlay.innerText = "▶";
+                btnScrollPlay.classList.remove('active');
+                autoScrollControls.classList.remove('visible');
             }
             
-            if (isListening) {
-                stopListeningEngine();
-            }
+            if (isListening) stopListeningEngine();
 
             toolbar.classList.remove('hidden');
             floatingStop.classList.remove('visible');
@@ -543,7 +530,7 @@
         }
         floatingStop.addEventListener('click', stopAllProcesses);
 
-        // --- RENDERIZADO VISUAL EN CANVAS ---
+        // --- RENDERIZADO VISUAL ---
         function drawFrame() {
             if (!isRecordingVideo) return;
             
@@ -558,57 +545,37 @@
                 const cy = recordingCanvas.height * 0.40;
                 const bw = recordingCanvas.width * 0.45;
                 const bh = recordingCanvas.height * 0.15;
-
                 try {
                     const eyeRegion = ctx.getImageData(cx - bw/2, cy - bh/2, bw, bh);
                     ctx.putImageData(eyeRegion, cx - bw/2, (cy - bh/2) - 15);
                 } catch(e) {}
 
-                ctx.strokeStyle = "rgba(167, 139, 250, 0.6)";
-                ctx.lineWidth = 2; ctx.setLineDash([8, 8]);
+                ctx.strokeStyle = "rgba(167, 139, 250, 0.6)"; ctx.lineWidth = 2; ctx.setLineDash([8, 8]);
                 ctx.strokeRect(cx - bw/2, cy - bh/2, bw, bh);
                 ctx.font = "bold 18px monospace"; ctx.fillStyle = "rgba(167, 139, 250, 0.9)";
                 ctx.textAlign = "left"; ctx.textBaseline = "bottom";
-                ctx.fillText("◉ AI EYE-CONTACT ACTIVATED", (cx - bw/2), (cy - bh/2) - 8);
+                ctx.fillText("◉ AI EYE-CONTACT", (cx - bw/2), (cy - bh/2) - 8);
                 ctx.setLineDash([]);
             }
             
-            if (currentSubtitleText.trim() !== "") {
-                const fontSize = Math.floor(recordingCanvas.width * 0.05);
-                ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-                ctx.fillRect(0, recordingCanvas.height - (fontSize * 3), recordingCanvas.width, fontSize * 3);
-                ctx.font = `bold ${fontSize}px Arial`; ctx.fillStyle = "#10b981";
-                ctx.textAlign = "center"; ctx.textBaseline = "middle";
-                ctx.fillText(currentSubtitleText, recordingCanvas.width / 2, recordingCanvas.height - (fontSize * 1.5));
-            }
+            // Subtítulos no disponibles en grabación por limitación de hardware en Android
             animationFrameId = requestAnimationFrame(drawFrame);
         }
 
-        // --- HERRAMIENTAS ADICIONALES ---
+        // --- EXTRAS ---
         document.getElementById('btn-mirror').addEventListener('click', () => textContainer.classList.toggle('mirrored'));
         document.getElementById('btn-contrast').addEventListener('click', () => document.body.classList.toggle('high-contrast'));
         document.getElementById('btn-focus').addEventListener('click', () => document.getElementById('focus-zone').classList.toggle('hidden'));
-        document.getElementById('btn-reset').addEventListener('click', () => {
-            scrollContainer.scrollTo({ top: 0, behavior: 'smooth' });
-            if (voiceTracker) voiceTracker.currentWordIndex = 0;
-        });
-
+        document.getElementById('btn-reset').addEventListener('click', () => { scrollContainer.scrollTo({ top: 0, behavior: 'smooth' }); if (voiceTracker) voiceTracker.currentWordIndex = 0; });
         const btnEnhanceAudio = document.getElementById('btn-enhance-audio');
         btnEnhanceAudio.addEventListener('click', () => {
             useAudioEnhancement = !useAudioEnhancement;
             btnEnhanceAudio.innerText = useAudioEnhancement ? "🎙️ Audio: Studio" : "🎙️ Audio: Normal";
             btnEnhanceAudio.classList.toggle('active-audio', useAudioEnhancement);
         });
-
         let currentFontSize = 64;
-        document.getElementById('btn-font-up').addEventListener('click', () => {
-            currentFontSize = Math.min(140, currentFontSize + 8);
-            textContainer.style.fontSize = `${currentFontSize}px`;
-        });
-        document.getElementById('btn-font-down').addEventListener('click', () => {
-            currentFontSize = Math.max(24, currentFontSize - 8);
-            textContainer.style.fontSize = `${currentFontSize}px`;
-        });
+        document.getElementById('btn-font-up').addEventListener('click', () => { currentFontSize = Math.min(140, currentFontSize + 8); textContainer.style.fontSize = `${currentFontSize}px`; });
+        document.getElementById('btn-font-down').addEventListener('click', () => { currentFontSize = Math.max(24, currentFontSize - 8); textContainer.style.fontSize = `${currentFontSize}px`; });
     </script>
 </body>
 </html>
