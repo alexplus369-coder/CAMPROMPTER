@@ -287,8 +287,12 @@
         </select>
         
         <button id="btn-bg-toggle" title="Activar Croma con IA">🪄 Fondo: Off</button>
-        <button id="btn-bg-select" title="Cambiar Fondo" style="display:none; background-color: #6366f1;">📁 Imagen/Video</button>
+        <button id="btn-bg-select" title="Cambiar Fondo" style="display:none; background-color: #6366f1;">📁 Fondo</button>
         <input type="file" id="file-bg" accept="image/*,video/*" style="display:none;">
+
+        <!-- NUEVO BOTÓN: PLANTILLA / OVERLAY -->
+        <button id="btn-overlay-select" title="Añadir Plantilla Transparente" style="background-color: #ec4899;">🖼️ Plantilla</button>
+        <input type="file" id="file-overlay" accept="image/png" style="display:none;">
 
         <button id="btn-record">Grabar Video</button>
         <button id="btn-record-ia">Rec IA ✨</button>
@@ -408,13 +412,14 @@
         let isAutoScrolling = false;
         let scrollSpeed = 1.5;
 
-        // Variables Recorte y Fondo
+        // Variables Recorte, Fondo y Plantilla
         let outputWidth = 0;
         let outputHeight = 0;
         let segmenter = null;
         let isBgRemovalActive = false;
         let isModelLoading = false;
         let bgMedia = null;
+        let overlayMedia = null; // NUEVO: Variable para la plantilla
 
         function showMessage(msg, type = '') {
             subtitle.innerText = msg;
@@ -568,6 +573,35 @@
         document.getElementById('btn-scroll-slower').addEventListener('click', () => { scrollSpeed = Math.max(0.5, scrollSpeed - 0.5); });
         document.getElementById('btn-scroll-faster').addEventListener('click', () => { scrollSpeed = Math.min(5.0, scrollSpeed + 0.5); });
 
+        // --- SISTEMA DE PLANTILLA (OVERLAY) NUEVO ---
+        const btnOverlay = document.getElementById('btn-overlay-select');
+        btnOverlay.addEventListener('click', () => {
+            if (overlayMedia) {
+                // Si ya hay plantilla, al hacer clic la quitamos
+                overlayMedia = null;
+                btnOverlay.innerText = "🖼️ Plantilla";
+                btnOverlay.classList.remove('active-feature');
+                document.getElementById('file-overlay').value = ""; // Resetear input
+            } else {
+                // Si no hay plantilla, abrimos el selector de archivos
+                document.getElementById('file-overlay').click();
+            }
+        });
+
+        document.getElementById('file-overlay').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const url = URL.createObjectURL(file);
+            overlayMedia = new Image();
+            overlayMedia.onload = () => {
+                btnOverlay.innerText = "🖼️ Plantilla: ON";
+                btnOverlay.classList.add('active-feature');
+            };
+            overlayMedia.src = url;
+        });
+
+
         // --- FONDO VIRTUAL IA (IMPORTACIÓN DINÁMICA SEGURA) ---
         async function loadSegmentationModel() {
             if (segmenter || isModelLoading) return;
@@ -577,7 +611,6 @@
             
             try {
                 // Importación Dinámica: Solo se ejecuta si se llama a esta función.
-                // Protege el resto de la aplicación de posibles fallos de red o de ES Modules.
                 const visionModule = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs');
                 const FilesetResolver = visionModule.FilesetResolver;
                 const ImageSegmenter = visionModule.ImageSegmenter;
@@ -808,7 +841,7 @@
             };
         }
 
-        // --- RENDERIZADO VISUAL CON IA DE SEGMENTACIÓN ---
+        // --- RENDERIZADO VISUAL CON CAPAS ---
         function drawFrame() {
             if (!isRecordingVideo) return;
             
@@ -816,7 +849,7 @@
             const vh = videoElement.videoHeight;
             let sourceImage = videoElement;
 
-            // 1. GENERAR CAPA TRANSPARENTE
+            // 1. GENERAR CAPA TRANSPARENTE (IA)
             if (isBgRemovalActive && segmenter) {
                 if (processCanvas.width !== vw) { processCanvas.width = vw; processCanvas.height = vh; }
 
@@ -850,9 +883,11 @@
                 } catch(e) {}
             }
 
+            // LIMPIEZA DE LIENZO PRINCIPAL
             ctx.save();
             ctx.clearRect(0, 0, outputWidth, outputHeight);
 
+            // CAPA 1 (INFERIOR): FONDO
             if (isBgRemovalActive) {
                 if (bgMedia) {
                     const bgW = bgMedia.videoWidth || bgMedia.width || outputWidth;
@@ -867,6 +902,7 @@
                 }
             }
 
+            // CAPA 2 (MEDIO): CÁMARA O PERSONA RECORTADA
             const scale = Math.max(outputWidth / vw, outputHeight / vh);
             const scaledW = vw * scale;
             const scaledH = vh * scale;
@@ -874,10 +910,17 @@
             const offsetY = (outputHeight - scaledH) / 2;
 
             ctx.translate(outputWidth, 0);
-            ctx.scale(-1, 1);
+            ctx.scale(-1, 1); // Efecto Espejo
             ctx.drawImage(sourceImage, -offsetX, offsetY, scaledW, scaledH);
             ctx.restore();
 
+            // CAPA 3 (SUPERIOR): PLANTILLA / OVERLAY
+            if (overlayMedia) {
+                // Dibujamos la plantilla estirada a las dimensiones exactas del formato de salida
+                ctx.drawImage(overlayMedia, 0, 0, outputWidth, outputHeight);
+            }
+
+            // CAPA 4 (EXTRA SUPERIOR): MARCA DE CONTACTO VISUAL IA
             if (isIARecording) {
                 const cx = outputWidth / 2;
                 const cy = outputHeight * 0.40;
