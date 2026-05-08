@@ -279,7 +279,6 @@
     <canvas id="mask-canvas" style="display: none;"></canvas>
 
     <div id="toolbar">
-        <!-- Controles de Video -->
         <select id="formatSelect" title="Formato de Grabación">
             <option value="auto" selected>📹 Auto</option>
             <option value="9:16">📱 9:16</option>
@@ -287,7 +286,6 @@
             <option value="16:9">📺 16:9</option>
         </select>
         
-        <!-- Controles de Fondo Virtual -->
         <button id="btn-bg-toggle" title="Activar Croma con IA">🪄 Fondo: Off</button>
         <button id="btn-bg-select" title="Cambiar Fondo" style="display:none; background-color: #6366f1;">📁 Imagen/Video</button>
         <input type="file" id="file-bg" accept="image/*,video/*" style="display:none;">
@@ -296,7 +294,6 @@
         <button id="btn-record-ia">Rec IA ✨</button>
         <button id="btn-mic">Solo Voz (IA)</button>
         
-        <!-- Herramientas -->
         <button id="btn-mirror">🪞 Espejo</button>
         <button id="btn-enhance-audio">🎙️ Audio Normal</button>
         <button id="btn-font-down">A-</button>
@@ -324,7 +321,7 @@
     <div id="focus-zone" class="hidden"></div>
     <div id="live-subtitle" class="subtitle-hidden">Esperando...</div>
 
-    <!-- Pantalla de Previsualización y Descarga (Solución para Móviles) -->
+    <!-- Pantalla de Previsualización y Descarga -->
     <div id="preview-overlay" class="hidden">
         <h2 class="title-preview">¡Grabación Terminada!</h2>
         <p style="color: #94a3b8; text-align: center;">Revisa tu video y guárdalo en tu galería.</p>
@@ -335,8 +332,10 @@
         </div>
     </div>
 
-    <!-- SCRIPT ESTANDAR: Evita que el navegador bloquee la app si se abre localmente -->
-    <script>
+    <!-- SCRIPT TIPO MODULE: Carga la IA de forma correcta y segura -->
+    <script type="module">
+        import { SelfieSegmentation, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm';
+
         /** ALGORITMO VOICE TRACKER */
         class VoiceTracker {
             constructor(fullText) {
@@ -535,7 +534,7 @@
         document.getElementById('btn-scroll-slower').addEventListener('click', () => { scrollSpeed = Math.max(0.5, scrollSpeed - 0.5); });
         document.getElementById('btn-scroll-faster').addEventListener('click', () => { scrollSpeed = Math.min(5.0, scrollSpeed + 0.5); });
 
-        // --- FONDO VIRTUAL IA (CARGA SEGURA Y ASÍNCRONA) ---
+        // --- FONDO VIRTUAL IA ---
         async function loadSegmentationModel() {
             if (segmenter || isModelLoading) return;
             
@@ -543,18 +542,15 @@
             showMessage("Descargando IA de Fondo (MediaPipe)... ⏳", "info");
             
             try {
-                // Importamos la biblioteca dinámicamente para que no bloquee la app si se abre como archivo local
-                const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm');
-                const FilesetResolver = vision.FilesetResolver;
-                const SelfieSegmentation = vision.SelfieSegmentation;
-
-                const resolver = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm');
-                segmenter = await SelfieSegmentation.createFromOptions(resolver, {
+                // Al cargar en Module, no comprobamos si existe en window, usamos la clase importada directamente.
+                const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm');
+                segmenter = await SelfieSegmentation.createFromOptions(vision, {
                     baseOptions: {
                         modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/selfie_segmenter/selfie_segmentation/float16/latest/selfie_segmenter.tflite',
                     },
                     runningMode: "VIDEO",
-                    outputConfidenceMasks: true
+                    outputConfidenceMasks: true,
+                    outputCategoryMask: false
                 });
                 
                 isModelLoading = false;
@@ -562,8 +558,7 @@
                 setTimeout(() => subtitle.classList.add('subtitle-hidden'), 2000);
             } catch (e) {
                 console.error("Error al cargar MediaPipe:", e);
-                // Si falla (por estar en archivo local o error de red), muestra un error pero el resto de la app sigue viva.
-                showMessage("Aviso: Fondo virtual bloqueado. (Requiere servidor web o HTTPS)", "error");
+                showMessage("Fallo al iniciar IA de fondo.", "error");
                 isBgRemovalActive = false;
                 document.getElementById('btn-bg-toggle').innerText = "🪄 Fondo: Off";
                 document.getElementById('btn-bg-toggle').classList.remove('active-feature');
@@ -683,7 +678,6 @@
                         const tracks = [...canvasStream.getVideoTracks(), ...finalAudioStream.getAudioTracks()];
                         const combinedStream = new MediaStream(tracks);
 
-                        // Búsqueda de Códec Soportado (Para evitar fallos al guardar)
                         const mimeTypesToTry = [
                             'video/webm;codecs=vp9,opus',
                             'video/webm;codecs=vp8,opus',
@@ -773,7 +767,7 @@
             };
         }
 
-        // --- RENDERIZADO VISUAL ---
+        // --- RENDERIZADO VISUAL CON IA DE SEGMENTACIÓN ---
         function drawFrame() {
             if (!isRecordingVideo) return;
             
@@ -781,6 +775,7 @@
             const vh = videoElement.videoHeight;
             let sourceImage = videoElement;
 
+            // 1. GENERAR CAPA TRANSPARENTE
             if (isBgRemovalActive && segmenter) {
                 if (processCanvas.width !== vw) { processCanvas.width = vw; processCanvas.height = vh; }
 
